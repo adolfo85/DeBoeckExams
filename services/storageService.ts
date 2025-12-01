@@ -327,44 +327,37 @@ export const storageService = {
     // Serialize integrativeConfig if present
     const integrativeConfigJson = config.integrativeConfig ? JSON.stringify(config.integrativeConfig) : null;
 
-    // Explicitly set unit_id to NULL for integrative exams
-    const unitIdValue = config.unitId || null;
+    // Use DELETE + INSERT pattern to avoid all constraint issues
+    // This forcefully removes any corrupted/duplicate records
 
-    // Upsert using ON CONFLICT
     if (config.unitId) {
-      // Unit exam - use the unique constraint on (subject_id, unit_id)
-      // Always generate a fresh UUID to avoid primary key conflicts
+      // For unit exams: delete by subject_id AND unit_id
+      await sql`
+        DELETE FROM exam_configs 
+        WHERE subject_id = ${config.subjectId} 
+          AND unit_id = ${config.unitId}
+      `;
+
+      // Insert fresh record
       const newId = crypto.randomUUID();
       await sql`
         INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config)
-        VALUES (${newId}, ${config.subjectId}, ${unitIdValue}, ${config.type}, ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
-        ON CONFLICT (subject_id, unit_id) 
-        DO UPDATE SET 
-          is_active = EXCLUDED.is_active,
-          passing_grade = EXCLUDED.passing_grade,
-          integrative_config = EXCLUDED.integrative_config,
-          type = EXCLUDED.type
+        VALUES (${newId}, ${config.subjectId}, ${config.unitId}, ${config.type}, ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
       `;
     } else {
-      // Integrative exam - use UPDATE then INSERT approach
-      const updateResult = await sql`
-        UPDATE exam_configs 
-        SET is_active = ${config.isActive},
-            passing_grade = ${config.passingGrade},
-            integrative_config = ${integrativeConfigJson}
+      // For integrative exams: delete by subject_id AND type='integrative'
+      await sql`
+        DELETE FROM exam_configs 
         WHERE subject_id = ${config.subjectId} 
           AND type = 'integrative'
-          AND unit_id IS NULL
       `;
 
-      // If no rows were updated, insert a new one
-      if (updateResult.length === 0) {
-        const newId = crypto.randomUUID();
-        await sql`
-          INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config)
-          VALUES (${newId}, ${config.subjectId}, NULL, 'integrative', ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
-        `;
-      }
+      // Insert fresh record
+      const newId = crypto.randomUUID();
+      await sql`
+        INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config)
+        VALUES (${newId}, ${config.subjectId}, NULL, 'integrative', ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
+      `;
     }
   },
 
