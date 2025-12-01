@@ -1,0 +1,5 @@
+{
+  "name": "DeBoeckExams",
+  "description": "Una plataforma minimalista para la gestión y toma de exámenes de opción múltiple con soporte de IA para generar preguntas.",
+  "requestFramePermissions": []
+}
