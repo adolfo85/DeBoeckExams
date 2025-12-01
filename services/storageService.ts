@@ -21,6 +21,7 @@ export const storageService = {
       // Add columns to questions
       await sql`ALTER TABLE questions ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id) ON DELETE CASCADE`;
       await sql`ALTER TABLE questions ADD COLUMN IF NOT EXISTS is_active_integrative BOOLEAN DEFAULT false`;
+      await sql`ALTER TABLE questions ADD COLUMN IF NOT EXISTS topic TEXT`;
 
       // Update exam_configs
       await sql`ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS id UUID`;
@@ -227,7 +228,8 @@ export const storageService = {
         options: row.options,
         correctOptionIndex: row.correct_option_index,
         isActive: row.is_active,
-        isActiveIntegrative: row.is_active_integrative
+        isActiveIntegrative: row.is_active_integrative,
+        topic: row.topic
       }));
     } catch (e) {
       console.error("Error fetching questions:", e);
@@ -238,8 +240,8 @@ export const storageService = {
   addQuestion: async (question: Omit<Question, 'id'>): Promise<Question> => {
     const id = crypto.randomUUID();
     await sql`
-      INSERT INTO questions (id, subject_id, unit_id, question_type, text, options, correct_option_index, is_active, is_active_integrative)
-      VALUES (${id}, ${question.subjectId}, ${question.unitId}, ${question.questionType}, ${question.text}, ${JSON.stringify(question.options)}, ${JSON.stringify(question.correctOptionIndex)}, ${question.isActive}, ${question.isActiveIntegrative || false})
+      INSERT INTO questions (id, subject_id, unit_id, question_type, text, options, correct_option_index, is_active, is_active_integrative, topic)
+      VALUES (${id}, ${question.subjectId}, ${question.unitId}, ${question.questionType}, ${question.text}, ${JSON.stringify(question.options)}, ${JSON.stringify(question.correctOptionIndex)}, ${question.isActive}, ${question.isActiveIntegrative || false}, ${question.topic || null})
     `;
     return { ...question, id };
   },
@@ -253,7 +255,8 @@ export const storageService = {
       correct_option_index = ${JSON.stringify(question.correctOptionIndex)},
       is_active = ${question.isActive},
       is_active_integrative = ${question.isActiveIntegrative || false},
-      unit_id = ${question.unitId}
+      unit_id = ${question.unitId},
+      topic = ${question.topic || null}
       WHERE id = ${question.id}
     `;
   },

@@ -37,6 +37,7 @@ export interface Question {
   correctOptionIndex: number | number[]; // Array for multiple_select
   isActive: boolean; // Active for Unit Exam
   isActiveIntegrative?: boolean; // Deprecated, kept for backwards compatibility
+  topic?: string; // Optional topic/theme for organization
 }
 
 export interface ExamConfig {

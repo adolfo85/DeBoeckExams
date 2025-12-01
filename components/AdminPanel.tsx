@@ -303,10 +303,11 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
 
   const [questionType, setQuestionType] = useState<import('../types').QuestionType>('multiple_choice');
   const [optionsCount, setOptionsCount] = useState(4);
-  const [newQ, setNewQ] = useState<{ text: string; options: string[]; correctOptionIndex: number | number[] }>({
+  const [newQ, setNewQ] = useState<{ text: string; options: string[]; correctOptionIndex: number | number[]; topic: string }>({
     text: '',
     options: ['', '', '', ''],
-    correctOptionIndex: 0
+    correctOptionIndex: 0,
+    topic: ''
   });
 
   // Integrative Mode States
@@ -315,6 +316,9 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
   const [randomQuestionsPerUnit, setRandomQuestionsPerUnit] = useState<Map<string, number>>(new Map());
   const [manuallySelectedQuestions, setManuallySelectedQuestions] = useState<Set<string>>(new Set());
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+
+  // Sorting State
+  const [sortBy, setSortBy] = useState<'default' | 'topic'>('default');
 
   useEffect(() => {
     if (selectedSubjectId) {
@@ -380,7 +384,8 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
     setNewQ({
       text: '',
       options: questionType === 'true_false' ? ['Verdadero', 'Falso'] : Array(optionsCount).fill(''),
-      correctOptionIndex: 0
+      correctOptionIndex: 0,
+      topic: ''
     });
     loadQuestions(selectedSubjectId, selectedUnitId);
   };
@@ -577,6 +582,17 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Tema (Opcional)</label>
+                <input
+                  type="text"
+                  value={newQ.topic}
+                  onChange={(e) => setNewQ({ ...newQ, topic: e.target.value })}
+                  placeholder="Ej: Revolución Francesa, Independencia, etc."
+                  className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+
               <div className="space-y-2">
                 <label className="block text-xs font-medium text-gray-500">Opciones (Marca la correcta)</label>
                 {newQ.options.map((opt, idx) => (
@@ -628,8 +644,8 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
                 <button
                   onClick={() => setIntegrativeMode('random')}
                   className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${integrativeMode === 'random'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-300'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-300'
                     }`}
                 >
                   🎲 Aleatorio
@@ -637,8 +653,8 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
                 <button
                   onClick={() => setIntegrativeMode('manual')}
                   className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${integrativeMode === 'manual'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-300'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-300'
                     }`}
                 >
                   ✋ Manual
@@ -764,71 +780,93 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
                   <button onClick={() => handleBulkAction('enable')} className="text-xs text-emerald-600 hover:underline">Activar Todas</button>
                   <span className="text-gray-300">|</span>
                   <button onClick={() => handleBulkAction('disable')} className="text-xs text-gray-500 hover:underline">Desactivar Todas</button>
+                  <span className="text-gray-300">|</span>
+                  <button
+                    onClick={() => setSortBy(sortBy === 'default' ? 'topic' : 'default')}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    {sortBy === 'default' ? 'Ordenar por Tema' : 'Orden Original'}
+                  </button>
                 </div>
               )}
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-            {questions.map((q, i) => {
-              const isActive = selectedUnitId === 'integrative' ? q.isActiveIntegrative : q.isActive;
-              return (
-                <div key={q.id} className={`p-4 rounded-lg border transition-all ${isActive ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 bg-white opacity-75'}`}>
-                  <div className="flex justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-bold text-gray-400">#{i + 1}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded border ${q.questionType === 'multiple_choice' ? 'bg-blue-50 text-blue-600 border-blue-100' :
-                          q.questionType === 'true_false' ? 'bg-purple-50 text-purple-600 border-purple-100' :
-                            q.questionType === 'multiple_select' ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                              'bg-amber-50 text-amber-600 border-amber-100'
-                          }`}>
-                          {q.questionType === 'multiple_choice' ? 'Opción Múltiple' :
-                            q.questionType === 'true_false' ? 'V/F' :
-                              q.questionType === 'multiple_select' ? 'Sel. Múltiple' : 'Completar'}
-                        </span>
-                        {selectedUnitId === 'integrative' && q.unitId && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
-                            {units.find(u => u.id === q.unitId)?.name || 'Unidad'}
+            {questions
+              .slice()
+              .sort((a, b) => {
+                if (sortBy === 'topic') {
+                  const topicA = a.topic || 'Sin tema';
+                  const topicB = b.topic || 'Sin tema';
+                  return topicA.localeCompare(topicB);
+                }
+                return 0; // default order
+              })
+              .map((q, i) => {
+                const isActive = selectedUnitId === 'integrative' ? q.isActiveIntegrative : q.isActive;
+                return (
+                  <div key={q.id} className={`p-4 rounded-lg border transition-all ${isActive ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 bg-white opacity-75'}`}>
+                    <div className="flex justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-bold text-gray-400">#{i + 1}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded border ${q.questionType === 'multiple_choice' ? 'bg-blue-50 text-blue-600 border-blue-100' :
+                            q.questionType === 'true_false' ? 'bg-purple-50 text-purple-600 border-purple-100' :
+                              q.questionType === 'multiple_select' ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                'bg-amber-50 text-amber-600 border-amber-100'
+                            }`}>
+                            {q.questionType === 'multiple_choice' ? 'Opción Múltiple' :
+                              q.questionType === 'true_false' ? 'V/F' :
+                                q.questionType === 'multiple_select' ? 'Sel. Múltiple' : 'Completar'}
                           </span>
-                        )}
+                          {selectedUnitId === 'integrative' && q.unitId && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
+                              {units.find(u => u.id === q.unitId)?.name || 'Unidad'}
+                            </span>
+                          )}
+                          {q.topic && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100">
+                              {q.topic}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-800 font-medium text-sm mb-2">{q.text}</p>
+                        <div className="pl-4 border-l-2 border-gray-100 space-y-1">
+                          {q.options.map((opt, idx) => {
+                            const isCorrect = Array.isArray(q.correctOptionIndex)
+                              ? q.correctOptionIndex.includes(idx)
+                              : q.correctOptionIndex === idx;
+                            return (
+                              <div key={idx} className={`text-xs flex items-center gap-2 ${isCorrect ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
+                                {isCorrect && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>}
+                                {opt}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <p className="text-gray-800 font-medium text-sm mb-2">{q.text}</p>
-                      <div className="pl-4 border-l-2 border-gray-100 space-y-1">
-                        {q.options.map((opt, idx) => {
-                          const isCorrect = Array.isArray(q.correctOptionIndex)
-                            ? q.correctOptionIndex.includes(idx)
-                            : q.correctOptionIndex === idx;
-                          return (
-                            <div key={idx} className={`text-xs flex items-center gap-2 ${isCorrect ? 'text-emerald-600 font-medium' : 'text-gray-500'}`}>
-                              {isCorrect && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>}
-                              {opt}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
 
-                    <div className="flex flex-col gap-2 items-end">
-                      <button
-                        onClick={() => toggleQuestionStatus(q)}
-                        className={`p-2 rounded-lg transition-colors ${isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
-                        title={isActive ? "Desactivar pregunta" : "Activar pregunta"}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                      </button>
-                      <button
-                        onClick={() => handleDelete(q.id)}
-                        className="p-2 rounded-lg bg-white border border-gray-200 text-gray-300 hover:text-red-500 hover:border-red-200 transition-colors"
-                        title="Eliminar pregunta"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                      </button>
+                      <div className="flex flex-col gap-2 items-end">
+                        <button
+                          onClick={() => toggleQuestionStatus(q)}
+                          className={`p-2 rounded-lg transition-colors ${isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                          title={isActive ? "Desactivar pregunta" : "Activar pregunta"}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </button>
+                        <button
+                          onClick={() => handleDelete(q.id)}
+                          className="p-2 rounded-lg bg-white border border-gray-200 text-gray-300 hover:text-red-500 hover:border-red-200 transition-colors"
+                          title="Eliminar pregunta"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
             {questions.length === 0 && <p className="text-center text-gray-400 py-10">No hay preguntas en esta materia.</p>}
           </div>
         </div>
