@@ -309,6 +309,13 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
     correctOptionIndex: 0
   });
 
+  // Integrative Mode States
+  const [integrativeMode, setIntegrativeMode] = useState<'random' | 'manual'>('random');
+  const [selectedUnitsForIntegrative, setSelectedUnitsForIntegrative] = useState<Set<string>>(new Set());
+  const [randomQuestionsPerUnit, setRandomQuestionsPerUnit] = useState<Map<string, number>>(new Map());
+  const [manuallySelectedQuestions, setManuallySelectedQuestions] = useState<Set<string>>(new Set());
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     if (selectedSubjectId) {
       loadUnits(selectedSubjectId);
@@ -402,6 +409,88 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
     }
     await storageService.updateAllQuestionsStatus(selectedSubjectId, action === 'enable');
     loadQuestions(selectedSubjectId, selectedUnitId);
+  };
+
+  // Integrative Mode Helper Functions
+  const toggleUnitSelection = (unitId: string) => {
+    const newSet = new Set(selectedUnitsForIntegrative);
+    if (newSet.has(unitId)) {
+      newSet.delete(unitId);
+      // Clear random count for this unit
+      const newMap = new Map(randomQuestionsPerUnit);
+      newMap.delete(unitId);
+      setRandomQuestionsPerUnit(newMap);
+    } else {
+      newSet.add(unitId);
+      // Set default random count
+      if (integrativeMode === 'random') {
+        const newMap = new Map(randomQuestionsPerUnit);
+        newMap.set(unitId, 2); // Default 2 questions
+        setRandomQuestionsPerUnit(newMap);
+      }
+    }
+    setSelectedUnitsForIntegrative(newSet);
+  };
+
+  const setRandomCountForUnit = (unitId: string, count: number) => {
+    const newMap = new Map(randomQuestionsPerUnit);
+    newMap.set(unitId, Math.max(1, count));
+    setRandomQuestionsPerUnit(newMap);
+  };
+
+  const toggleQuestionForIntegrative = (questionId: string) => {
+    const newSet = new Set(manuallySelectedQuestions);
+    if (newSet.has(questionId)) {
+      newSet.delete(questionId);
+    } else {
+      newSet.add(questionId);
+    }
+    setManuallySelectedQuestions(newSet);
+  };
+
+  const toggleUnitExpansion = (unitId: string) => {
+    const newSet = new Set(expandedUnits);
+    if (newSet.has(unitId)) {
+      newSet.delete(unitId);
+    } else {
+      newSet.add(unitId);
+    }
+    setExpandedUnits(newSet);
+  };
+
+  const applyIntegrativeSelection = async () => {
+    if (!selectedSubjectId) return;
+
+    if (integrativeMode === 'random') {
+      // Random mode: select N random questions from each selected unit
+      const allQuestionsToActivate: string[] = [];
+
+      for (const unitId of selectedUnitsForIntegrative) {
+        const count = randomQuestionsPerUnit.get(unitId) || 2;
+        const unitQuestions = questions.filter(q => q.unitId === unitId);
+
+        // Shuffle and take N questions
+        const shuffled = [...unitQuestions].sort(() => Math.random() - 0.5);
+        const selected = shuffled.slice(0, count);
+        allQuestionsToActivate.push(...selected.map(q => q.id));
+      }
+
+      // Update all questions: deactivate all, then activate selected
+      const allQuestions = await storageService.getQuestions(selectedSubjectId);
+      for (const q of allQuestions) {
+        await storageService.updateQuestion({ ...q, isActiveIntegrative: allQuestionsToActivate.includes(q.id) });
+      }
+    } else {
+      // Manual mode: activate only manually selected questions
+      const allQuestions = await storageService.getQuestions(selectedSubjectId);
+      for (const q of allQuestions) {
+        await storageService.updateQuestion({ ...q, isActiveIntegrative: manuallySelectedQuestions.has(q.id) });
+      }
+    }
+
+    // Reload questions
+    loadQuestions(selectedSubjectId, selectedUnitId);
+    alert('Selección de preguntas integrativas aplicada correctamente.');
   };
 
   if (!selectedSubjectId) {
@@ -529,10 +618,136 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
             </div>
           </div>
         ) : (
-          <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 flex flex-col items-center justify-center text-center h-full">
-            <h3 className="text-lg font-bold text-blue-800 mb-2">Modo Examen Integrador</h3>
-            <p className="text-blue-600 mb-4">En este modo, seleccionas preguntas existentes de las Unidades para incluirlas en el Examen Integrador.</p>
-            <p className="text-sm text-blue-500">Para crear nuevas preguntas, selecciona una Unidad específica en el menú superior.</p>
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">Configuración de Examen Integrador</h3>
+
+            {/* Mode Toggle */}
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+              <label className="block text-sm font-medium text-gray-700 mb-3">Modo de Selección</label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIntegrativeMode('random')}
+                  className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${integrativeMode === 'random'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-300'
+                    }`}
+                >
+                  🎲 Aleatorio
+                </button>
+                <button
+                  onClick={() => setIntegrativeMode('manual')}
+                  className={`flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all ${integrativeMode === 'manual'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:border-emerald-300'
+                    }`}
+                >
+                  ✋ Manual
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {integrativeMode === 'random'
+                  ? 'Selecciona N preguntas aleatorias de cada unidad'
+                  : 'Selecciona manualmente preguntas específicas de cada unidad'}
+              </p>
+            </div>
+
+            {/* Unit Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Seleccionar Unidades ({selectedUnitsForIntegrative.size} seleccionadas)
+              </label>
+              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                {units.map(unit => {
+                  const isSelected = selectedUnitsForIntegrative.has(unit.id);
+                  const isExpanded = expandedUnits.has(unit.id);
+                  const unitQuestions = questions.filter(q => q.unitId === unit.id);
+                  const randomCount = randomQuestionsPerUnit.get(unit.id) || 2;
+                  const manualSelectedInUnit = unitQuestions.filter(q => manuallySelectedQuestions.has(q.id)).length;
+
+                  return (
+                    <div key={unit.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="flex items-center gap-3 p-3 bg-gray-50">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleUnitSelection(unit.id)}
+                          className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 rounded cursor-pointer"
+                        />
+                        <div className="flex-1">
+                          <span className="font-medium text-gray-800">{unit.name}</span>
+                          <span className="text-xs text-gray-500 ml-2">({unitQuestions.length} preguntas)</span>
+                        </div>
+
+                        {isSelected && integrativeMode === 'random' && (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              max={unitQuestions.length}
+                              value={randomCount}
+                              onChange={(e) => setRandomCountForUnit(unit.id, parseInt(e.target.value) || 1)}
+                              className="w-16 px-2 py-1 border border-gray-300 rounded text-sm text-center"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <span className="text-xs text-gray-600">preguntas</span>
+                          </div>
+                        )}
+
+                        {isSelected && integrativeMode === 'manual' && (
+                          <button
+                            onClick={() => toggleUnitExpansion(unit.id)}
+                            className="text-xs text-emerald-600 hover:underline flex items-center gap-1"
+                          >
+                            {manualSelectedInUnit} seleccionadas
+                            <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Manual Mode: Show questions when expanded */}
+                      {isSelected && integrativeMode === 'manual' && isExpanded && (
+                        <div className="p-3 bg-white space-y-2 max-h-[200px] overflow-y-auto">
+                          {unitQuestions.map((q, idx) => (
+                            <div key={q.id} className="flex items-start gap-2 p-2 hover:bg-gray-50 rounded">
+                              <input
+                                type="checkbox"
+                                checked={manuallySelectedQuestions.has(q.id)}
+                                onChange={() => toggleQuestionForIntegrative(q.id)}
+                                className="w-4 h-4 text-emerald-600 focus:ring-emerald-500 rounded cursor-pointer mt-0.5"
+                              />
+                              <div className="flex-1">
+                                <p className="text-sm text-gray-800">{q.text}</p>
+                                <span className="text-xs text-gray-400">#{idx + 1}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Apply Button */}
+            <Button
+              onClick={applyIntegrativeSelection}
+              disabled={selectedUnitsForIntegrative.size === 0}
+              className="w-full justify-center mt-4"
+            >
+              Aplicar Selección
+              {integrativeMode === 'random' && selectedUnitsForIntegrative.size > 0 && (
+                <span className="ml-2">
+                  ({Array.from(selectedUnitsForIntegrative).reduce((sum, unitId) =>
+                    sum + (randomQuestionsPerUnit.get(unitId) || 2), 0)} preguntas)
+                </span>
+              )}
+              {integrativeMode === 'manual' && manuallySelectedQuestions.size > 0 && (
+                <span className="ml-2">({manuallySelectedQuestions.size} preguntas)</span>
+              )}
+            </Button>
           </div>
         )}
 
