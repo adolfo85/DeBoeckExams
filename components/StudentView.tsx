@@ -230,7 +230,6 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     };
 
     await storageService.saveResult(result);
-    await storageService.saveResult(result);
     // Mark as completed locally to prevent retakes
     const examKey = currentExam.config.unitId ? `${currentExam.subject.id}-${currentExam.config.unitId}` : `${currentExam.subject.id}-integrative`;
     storageService.markExamCompletedLocally(examKey);
