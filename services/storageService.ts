@@ -324,8 +324,6 @@ export const storageService = {
   },
 
   saveExamConfig: async (config: ExamConfig): Promise<void> => {
-    const id = config.id || crypto.randomUUID();
-
     // Serialize integrativeConfig if present
     const integrativeConfigJson = config.integrativeConfig ? JSON.stringify(config.integrativeConfig) : null;
 
@@ -335,9 +333,11 @@ export const storageService = {
     // Upsert using ON CONFLICT
     if (config.unitId) {
       // Unit exam - use the unique constraint on (subject_id, unit_id)
+      // Always generate a fresh UUID to avoid primary key conflicts
+      const newId = crypto.randomUUID();
       await sql`
         INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config)
-        VALUES (${id}, ${config.subjectId}, ${unitIdValue}, ${config.type}, ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
+        VALUES (${newId}, ${config.subjectId}, ${unitIdValue}, ${config.type}, ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
         ON CONFLICT (subject_id, unit_id) 
         DO UPDATE SET 
           is_active = EXCLUDED.is_active,
@@ -346,8 +346,7 @@ export const storageService = {
           type = EXCLUDED.type
       `;
     } else {
-      // Integrative exam - use a different approach since partial unique index doesn't work well with ON CONFLICT
-      // First try to update, if no rows affected, then insert
+      // Integrative exam - use UPDATE then INSERT approach
       const updateResult = await sql`
         UPDATE exam_configs 
         SET is_active = ${config.isActive},
@@ -360,9 +359,10 @@ export const storageService = {
 
       // If no rows were updated, insert a new one
       if (updateResult.length === 0) {
+        const newId = crypto.randomUUID();
         await sql`
           INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config)
-          VALUES (${id}, ${config.subjectId}, NULL, 'integrative', ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
+          VALUES (${newId}, ${config.subjectId}, NULL, 'integrative', ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
         `;
       }
     }
