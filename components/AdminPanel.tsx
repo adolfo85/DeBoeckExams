@@ -323,6 +323,10 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
   // Topic Filter State
   const [filterTopic, setFilterTopic] = useState<string>('all');
 
+  // Migration State
+  const [migrationModal, setMigrationModal] = useState<{ isOpen: boolean; question: Question | null }>({ isOpen: false, question: null });
+  const [migrationTargetUnitId, setMigrationTargetUnitId] = useState<string>('');
+
   useEffect(() => {
     if (selectedSubjectId) {
       loadUnits(selectedSubjectId);
@@ -502,6 +506,26 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
     // Reload questions
     loadQuestions(selectedSubjectId, selectedUnitId);
     alert('Selección de preguntas integrativas aplicada correctamente.');
+  };
+
+  const handleMigrateClick = (question: Question) => {
+    setMigrationModal({ isOpen: true, question });
+    setMigrationTargetUnitId('');
+  };
+
+  const confirmMigration = async () => {
+    if (!migrationModal.question || !migrationTargetUnitId) return;
+
+    await storageService.updateQuestion({
+      ...migrationModal.question,
+      unitId: migrationTargetUnitId,
+      isActive: false, // Deactivate in new unit by default to be safe
+      isActiveIntegrative: false
+    });
+
+    setMigrationModal({ isOpen: false, question: null });
+    if (selectedSubjectId) loadQuestions(selectedSubjectId, selectedUnitId);
+    alert('Pregunta migrada correctamente.');
   };
 
   if (!selectedSubjectId) {
@@ -887,6 +911,15 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                         </button>
+                        {selectedUnitId !== 'integrative' && (
+                          <button
+                            onClick={() => handleMigrateClick(q)}
+                            className="p-2 rounded-lg bg-white border border-gray-200 text-gray-300 hover:text-blue-500 hover:border-blue-200 transition-colors"
+                            title="Migrar a otra unidad"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -896,6 +929,45 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
           </div>
         </div>
       </div>
+
+      {/* Migration Modal */}
+      {migrationModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-fade-in-up">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h3 className="text-lg font-bold text-gray-800">Migrar Pregunta</h3>
+              <button onClick={() => setMigrationModal({ isOpen: false, question: null })} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-600 mb-4 text-sm">
+                Selecciona la unidad de destino para la pregunta:<br />
+                <span className="font-medium text-gray-800 italic">"{migrationModal.question?.text.substring(0, 50)}..."</span>
+              </p>
+
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Unidad de Destino</label>
+                <select
+                  value={migrationTargetUnitId}
+                  onChange={(e) => setMigrationTargetUnitId(e.target.value)}
+                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
+                >
+                  <option value="">Seleccionar Unidad...</option>
+                  {units.filter(u => u.id !== selectedUnitId).map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <Button variant="secondary" onClick={() => setMigrationModal({ isOpen: false, question: null })}>Cancelar</Button>
+                <Button onClick={confirmMigration} disabled={!migrationTargetUnitId}>Confirmar Migración</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
