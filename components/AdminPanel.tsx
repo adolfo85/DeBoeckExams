@@ -320,6 +320,9 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
   // Sorting State
   const [sortBy, setSortBy] = useState<'default' | 'topic'>('default');
 
+  // Topic Filter State
+  const [filterTopic, setFilterTopic] = useState<string>('all');
+
   useEffect(() => {
     if (selectedSubjectId) {
       loadUnits(selectedSubjectId);
@@ -347,6 +350,9 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
       setQuestions(await storageService.getQuestions(sId, uId));
     }
   };
+
+  // Derive unique topics from questions
+  const uniqueTopics = Array.from(new Set(questions.map(q => q.topic).filter(t => t && t.trim() !== ''))).sort();
 
   // Reset form when switching types or options count
   useEffect(() => {
@@ -590,7 +596,13 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
                   onChange={(e) => setNewQ({ ...newQ, topic: e.target.value })}
                   placeholder="Ej: Revolución Francesa, Independencia, etc."
                   className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  list="topics-list"
                 />
+                <datalist id="topics-list">
+                  {uniqueTopics.map(topic => (
+                    <option key={topic} value={topic} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-2">
@@ -775,6 +787,19 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
               <span className="text-xs font-medium px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">
                 {activeCount} Activas {selectedUnitId === 'integrative' ? '(Integrador)' : '(Parcial)'}
               </span>
+
+              {/* Topic Filter Dropdown */}
+              <select
+                value={filterTopic}
+                onChange={(e) => setFilterTopic(e.target.value)}
+                className="text-xs border border-gray-300 rounded px-2 py-1 outline-none focus:border-emerald-500"
+              >
+                <option value="all">Todos los temas</option>
+                {uniqueTopics.map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+
               {selectedUnitId !== 'integrative' && (
                 <div className="flex gap-1">
                   <button onClick={() => handleBulkAction('enable')} className="text-xs text-emerald-600 hover:underline">Activar Todas</button>
@@ -794,7 +819,7 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
 
           <div className="flex-1 overflow-y-auto pr-2 space-y-3">
             {questions
-              .slice()
+              .filter(q => filterTopic === 'all' || q.topic === filterTopic)
               .sort((a, b) => {
                 if (sortBy === 'topic') {
                   const topicA = a.topic || 'Sin tema';
