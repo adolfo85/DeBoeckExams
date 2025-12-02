@@ -11,7 +11,7 @@ export const LandingPage: React.FC<{ onAdminClick: () => void }> = ({ onAdminCli
                         {/* Logo and Brand */}
                         <div className="flex items-center gap-3">
                             <img
-                                src="C:/Users/Adolfo/.gemini/antigravity/brain/4d805fbe-8d7f-40d3-af2f-0ce234a55679/deboeck_exams_logo_1764635468618.png"
+                                src="/images/logo.png"
                                 alt="DeBoeckExams Logo"
                                 className="h-10 w-10 object-contain"
                             />
@@ -56,7 +56,7 @@ export const LandingPage: React.FC<{ onAdminClick: () => void }> = ({ onAdminCli
                     <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow duration-300 border border-gray-100">
                         <div className="mb-6">
                             <img
-                                src="C:/Users/Adolfo/.gemini/antigravity/brain/4d805fbe-8d7f-40d3-af2f-0ce234a55679/feature_personalized_exams_1764635483107.png"
+                                src="/images/feature-personalized-exams.png"
                                 alt="Exámenes Personalizados"
                                 className="w-full h-48 object-cover rounded-lg"
                             />
@@ -71,7 +71,7 @@ export const LandingPage: React.FC<{ onAdminClick: () => void }> = ({ onAdminCli
                     <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow duration-300 border border-gray-100">
                         <div className="mb-6">
                             <img
-                                src="C:/Users/Adolfo/.gemini/antigravity/brain/4d805fbe-8d7f-40d3-af2f-0ce234a55679/feature_question_management_1764635498941.png"
+                                src="/images/feature-question-management.png"
                                 alt="Gestión de Preguntas"
                                 className="w-full h-48 object-cover rounded-lg"
                             />
@@ -86,7 +86,7 @@ export const LandingPage: React.FC<{ onAdminClick: () => void }> = ({ onAdminCli
                     <div className="bg-white rounded-xl shadow-lg p-8 hover:shadow-xl transition-shadow duration-300 border border-gray-100">
                         <div className="mb-6">
                             <img
-                                src="C:/Users/Adolfo/.gemini/antigravity/brain/4d805fbe-8d7f-40d3-af2f-0ce234a55679/feature_realtime_results_1764635512978.png"
+                                src="/images/feature-realtime-results.png"
                                 alt="Resultados en Tiempo Real"
                                 className="w-full h-48 object-cover rounded-lg"
                             />
