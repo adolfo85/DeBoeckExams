@@ -71,7 +71,7 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
         </div>
       </header>
 
-      <div className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8">
+      <div className={`flex-1 w-full mx-auto p-4 md:p-8 transition-all duration-300 ${activeTab === 'questions' ? 'max-w-[95%]' : 'max-w-7xl'}`}>
         <div className="flex flex-wrap gap-2 mb-8 border-b border-gray-100 pb-1">
           {(isSuperAdmin
             ? ['subjects', 'questions', 'exams', 'results', 'users']
@@ -568,10 +568,10 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-8 mb-10">
+      <div className="grid lg:grid-cols-3 gap-8 mb-10">
         {/* Manual Add - Only visible if a Unit is selected */}
         {selectedUnitId !== 'integrative' ? (
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+          <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <div className="flex justify-between items-start mb-6">
               <h3 className="font-bold text-gray-800 flex items-center gap-2">
                 <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
@@ -670,7 +670,7 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
             </div>
           </div>
         ) : (
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+          <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
             <h3 className="text-lg font-bold text-gray-800 mb-4">Configuración de Examen Integrador</h3>
 
             {/* Mode Toggle */}
@@ -804,7 +804,7 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
         )}
 
         {/* Question List */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-[600px] flex flex-col">
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-[600px] flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-800">Banco de Preguntas ({questions.length})</h3>
             <div className="flex gap-2 items-center">
