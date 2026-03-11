@@ -445,14 +445,49 @@ export const storageService = {
     // This can remain synchronous as it's device-specific logic
     const stored = localStorage.getItem(STORAGE_KEYS.COMPLETED_LOCAL);
     const list = stored ? JSON.parse(stored) : [];
-    if (!list.includes(subjectId)) {
-      localStorage.setItem(STORAGE_KEYS.COMPLETED_LOCAL, JSON.stringify([...list, subjectId]));
+    
+    const now = Date.now();
+    // Filter and clean up expired or old format entries
+    const validList = list.filter((item: any) => {
+      if (typeof item === 'string') return false; // Expire legacy strings immediately
+      if (item && item.timestamp && item.id) {
+        return now - item.timestamp < 10 * 60 * 1000; // 10 minutes (600,000 ms)
+      }
+      return false;
+    });
+
+    // Check if the current subjectId is already in the valid list
+    const isAlreadyCompleted = validList.some((item: any) => item.id === subjectId);
+    
+    if (!isAlreadyCompleted) {
+      localStorage.setItem(STORAGE_KEYS.COMPLETED_LOCAL, JSON.stringify([...validList, { id: subjectId, timestamp: now }]));
+    } else {
+      // Just update localStorage with the cleaned valid list
+      localStorage.setItem(STORAGE_KEYS.COMPLETED_LOCAL, JSON.stringify(validList));
     }
   },
 
   getCompletedExamsLocally: (): string[] => {
     // This can remain synchronous
     const stored = localStorage.getItem(STORAGE_KEYS.COMPLETED_LOCAL);
-    return stored ? JSON.parse(stored) : [];
+    if (!stored) return [];
+    
+    const list = JSON.parse(stored);
+    const now = Date.now();
+    
+    // Filter and clean up expired entries
+    const validList = list.filter((item: any) => {
+      if (typeof item === 'string') return false; // Expire legacy strings immediately
+      if (item && item.timestamp && item.id) {
+        return now - item.timestamp < 10 * 60 * 1000; // 10 minutes (600,000 ms)
+      }
+      return false;
+    });
+
+    // Save the cleaned up list back to storage to keep it small
+    localStorage.setItem(STORAGE_KEYS.COMPLETED_LOCAL, JSON.stringify(validList));
+
+    // Return an array of just the IDs for easy checking in StudentView
+    return validList.map((item: any) => item.id);
   }
 };
