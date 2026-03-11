@@ -85,8 +85,8 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
                   }`}
               >
                 {tab === 'subjects' && 'Espacios Curriculares'}
-                {tab === 'questions' && 'Banco de Preguntas'}
-                {tab === 'exams' && 'Configuración de Examen'}
+                {tab === 'questions' && 'Banco de Preguntas/Configuración de Examen'}
+                {tab === 'exams' && 'Activación/Desactivación de Examen'}
                 {tab === 'results' && 'Resultados'}
                 {tab === 'users' && (
                   <span className="flex items-center gap-2">
