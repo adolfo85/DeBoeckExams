@@ -48,6 +48,8 @@ export interface ExamConfig {
   isActive: boolean;
   passingGrade: number;
   integrativeConfig?: IntegrativeUnitConfig[]; // For integrative exams only
+  durationMinutes?: number; // 0 or undefined = no time limit
+  endTimestamp?: number; // Unix ms when the exam ends (set on activation)
 }
 
 export interface ExamResult {

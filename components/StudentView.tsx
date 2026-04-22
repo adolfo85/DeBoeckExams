@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { storageService } from '../services/storageService';
 import { Subject, Question, ExamConfig, ExamResult, Teacher } from '../types';
 import { Button } from './Button';
@@ -12,7 +12,6 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     unitName?: string;
     type: 'unit' | 'integrative';
   }[]>([]);
-  const [completedExams, setCompletedExams] = useState<string[]>([]); // "subjectId-unitId" or "subjectId-integrative"
   const [isLoading, setIsLoading] = useState(true);
 
   // Teacher selection
@@ -30,6 +29,9 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   const [examStep, setExamStep] = useState<'select' | 'name_input' | 'taking' | 'finished'>('select');
   const [answers, setAnswers] = useState<Record<string, number | number[]>>({});
   const [finalResult, setFinalResult] = useState<ExamResult | null>(null);
+  const [studentCountdown, setStudentCountdown] = useState<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const examEndTimestampRef = useRef<number | null>(null); // stores endTimestamp when exam loads
 
   // Data for the review screen (Incorrect answers)
   const [reviewData, setReviewData] = useState<{
@@ -39,23 +41,19 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
 
   useEffect(() => {
     const loadData = async () => {
-      // Check for teacher ID in URL
       const urlParams = new URLSearchParams(window.location.search);
       const teacherId = urlParams.get('t');
 
       if (teacherId) {
-        // Direct link with teacher ID
         const teacher = await storageService.getTeacher(teacherId);
         if (teacher) {
           setSelectedTeacher({ id: teacher.id, name: teacher.name });
           setSelectTeacherStep('selected');
           await loadTeacherExams(teacherId);
         } else {
-          // Teacher not found, fall back to selection
           await loadTeachersList();
         }
       } else {
-        // No teacher in URL, show selection
         await loadTeachersList();
       }
     };
@@ -70,76 +68,49 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
       const allSubjects = await storageService.getSubjects(teacherId);
       setSubjects(allSubjects);
 
-      // Check which are active
-      // Check which are active
       const active: typeof activeExams = [];
       for (const s of allSubjects) {
-        // Check Integrative
         const intConfig = await storageService.getExamConfig(s.id);
         if (intConfig.isActive) {
-          active.push({
-            subjectId: s.id,
-            subjectName: s.name,
-            type: 'integrative'
-          });
+          active.push({ subjectId: s.id, subjectName: s.name, type: 'integrative' });
         }
-
-        // Check Units
         const units = await storageService.getUnits(s.id);
         for (const u of units) {
           const uConfig = await storageService.getExamConfig(s.id, u.id);
           if (uConfig.isActive) {
-            active.push({
-              subjectId: s.id,
-              subjectName: s.name,
-              unitId: u.id,
-              unitName: u.name,
-              type: 'unit'
-            });
+            active.push({ subjectId: s.id, subjectName: s.name, unitId: u.id, unitName: u.name, type: 'unit' });
           }
         }
       }
       setActiveExams(active);
-
-      // Check local storage for completed exams
-      setCompletedExams(storageService.getCompletedExamsLocally());
       setIsLoading(false);
     };
 
     loadData();
+
+    // Poll every 30 seconds to reflect exam activation/deactivation in real time
+    const interval = setInterval(async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const teacherId = urlParams.get('t');
+      if (teacherId) {
+        await loadTeacherExams(teacherId);
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleStartExam = async (exam: typeof activeExams[0]) => {
-    const examKey = exam.unitId ? `${exam.subjectId}-${exam.unitId}` : `${exam.subjectId}-integrative`;
-    if (completedExams.includes(examKey)) {
-      alert("Ya has realizado este examen.");
-      return;
-    }
-
     const subject = subjects.find(s => s.id === exam.subjectId);
     if (!subject) return;
 
-    // Prepare exam data
     const allQuestions = await storageService.getQuestions(exam.subjectId, exam.unitId);
-
-    // Filter by Active status
-    // For Unit exams, we check isActive. For Integrative, we check isActiveIntegrative (or just isActive if migrated)
-    // Actually, getQuestions already filters by unitId if provided.
-    // If unitId is provided, we get questions for that unit.
-    // If unitId is NOT provided (integrative), we get ALL questions for the subject.
-    // But for integrative, we only want questions marked as 'isActiveIntegrative'
-
     let activeQuestions: Question[] = [];
 
     if (exam.type === 'integrative') {
-      // Fetch all questions for subject
       const allSubjectQuestions = await storageService.getQuestions(exam.subjectId);
       activeQuestions = allSubjectQuestions.filter(q => q.isActiveIntegrative);
     } else {
-      // Fetch questions for specific unit (already filtered by unitId in getQuestions if passed)
-      // But we need to be sure. storageService.getQuestions(sId, uId) returns questions for that unit.
-      // We should check if they are active for that unit? 
-      // The 'isActive' flag on a question usually means "Active for Unit Exam".
       activeQuestions = allQuestions.filter(q => q.isActive);
     }
 
@@ -148,9 +119,12 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
       return;
     }
 
-    // Shuffle questions
     const shuffledQuestions = [...activeQuestions].sort(() => Math.random() - 0.5);
     const config = await storageService.getExamConfig(exam.subjectId, exam.unitId);
+
+    // Store endTimestamp in ref immediately — no closure issues
+    examEndTimestampRef.current = config.endTimestamp ? Number(config.endTimestamp) : null;
+    console.log('[Timer] config.endTimestamp:', config.endTimestamp, '→ ref:', examEndTimestampRef.current);
 
     setCurrentExam({ subject, questions: shuffledQuestions, config });
     setExamStep('name_input');
@@ -160,6 +134,50 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     if (!studentName.trim()) return;
     setExamStep('taking');
   };
+
+  // Start countdown when exam begins (reads from ref, not stale closure)
+  useEffect(() => {
+    if (examStep !== 'taking') return;
+
+    const endTs = examEndTimestampRef.current;
+    console.log('[Timer] examStep→taking, endTs from ref:', endTs);
+
+    if (!endTs) {
+      console.log('[Timer] No time limit configured, skipping countdown');
+      return;
+    }
+
+    const rem = Math.floor((endTs - Date.now()) / 1000);
+    console.log('[Timer] seconds remaining:', rem);
+
+    if (rem <= 0) {
+      submitExamWithAnswers();
+      return;
+    }
+
+    setStudentCountdown(rem);
+    timerRef.current = setInterval(() => {
+      setStudentCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(timerRef.current!);
+          timerRef.current = null;
+          submitExamWithAnswers();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [examStep]);
+
+  // Cleanup timer on unmount
+  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
 
   // Updated handleAnswer to support multiple select (checkbox) and single choice (radio)
   const handleAnswer = (questionId: string, optionIndex: number, isMultipleSelect = false) => {
@@ -176,27 +194,23 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     });
   };
 
-  const submitExam = async () => {
+  const submitExam = async (overrideAnswers?: Record<string, number | number[]>) => {
     if (!currentExam) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    const usedAnswers = overrideAnswers ?? answers;
 
     let correctCount = 0;
     currentExam.questions.forEach(q => {
-      const userAns = answers[q.id];
+      const userAns = usedAnswers[q.id];
       if (Array.isArray(q.correctOptionIndex)) {
-        // multiple_select
         if (Array.isArray(userAns) && userAns.length === q.correctOptionIndex.length && q.correctOptionIndex.every(idx => userAns.includes(idx))) {
           correctCount++;
         }
       } else if (q.questionType === 'fill_blank') {
-        // fill_blank uses a single correct index
-        if (userAns === q.correctOptionIndex) {
-          correctCount++;
-        }
+        if (userAns === q.correctOptionIndex) correctCount++;
       } else {
-        // single answer types (multiple_choice, true_false)
-        if (userAns === q.correctOptionIndex) {
-          correctCount++;
-        }
+        if (userAns === q.correctOptionIndex) correctCount++;
       }
     });
 
@@ -204,7 +218,6 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     const percentage = total === 0 ? 0 : (correctCount / total) * 100;
     const passingGrade = currentExam.config.passingGrade;
 
-    // Grading Logic Interpolation
     let grade = 0;
     if (percentage < 60) {
       grade = 1 + ((passingGrade - 1) * percentage) / 60;
@@ -230,24 +243,25 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     };
 
     await storageService.saveResult(result);
-    // Mark as completed locally to prevent retakes
-    const examKey = currentExam.config.unitId ? `${currentExam.subject.id}-${currentExam.config.unitId}` : `${currentExam.subject.id}-integrative`;
-    storageService.markExamCompletedLocally(examKey);
-    setCompletedExams(prev => [...prev, examKey]);
-
     setFinalResult(result);
 
-    // Store data for review screen before clearing
     setReviewData({
       questions: currentExam.questions,
-      userAnswers: answers
+      userAnswers: usedAnswers as Record<string, number>
     });
 
-    // CRITICAL: Clean up exam state so user cannot go back
     setCurrentExam(null);
     setAnswers({});
-
+    setStudentCountdown(null);
     setExamStep('finished');
+  };
+
+  // Ref trick: capture latest answers so auto-submit can access them from interval closure
+  const answersRef = useRef(answers);
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+
+  const submitExamWithAnswers = () => {
+    submitExam(answersRef.current);
   };
 
   const exitCampus = () => {
@@ -306,7 +320,6 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
                       }
                     }
                     setActiveExams(active);
-                    setCompletedExams(storageService.getCompletedExamsLocally());
                     setIsLoading(false);
                   }}
                   className="w-full text-left p-5 rounded-xl border border-gray-200 bg-white hover:border-emerald-500 hover:shadow-md transition-all group"
@@ -344,45 +357,30 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
 
           <div className="space-y-4 mb-10">
             {activeExams.length > 0 ? (
-              activeExams.map((exam, idx) => {
-                const examKey = exam.unitId ? `${exam.subjectId}-${exam.unitId}` : `${exam.subjectId}-integrative`;
-                const isCompleted = completedExams.includes(examKey);
-                return (
-                  <button
-                    key={`${exam.subjectId}-${exam.unitId || 'int'}-${idx}`}
-                    onClick={() => !isCompleted && handleStartExam(exam)}
-                    disabled={isCompleted}
-                    className={`w-full text-left p-5 rounded-xl border transition-all group relative overflow-hidden ${isCompleted
-                      ? 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-75'
-                      : 'bg-white border-gray-200 hover:border-emerald-500 hover:shadow-md'
-                      }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className={`font-bold text-lg block mb-1 ${isCompleted ? 'text-gray-400' : 'text-gray-800 group-hover:text-emerald-700'}`}>
-                          {exam.subjectName}
-                        </span>
-                        <span className={`text-sm font-medium ${isCompleted ? 'text-gray-400' : 'text-emerald-600'}`}>
-                          {exam.type === 'integrative' ? 'Examen Integrador' : exam.unitName}
-                        </span>
-                      </div>
+              activeExams.map((exam, idx) => (
+                <button
+                  key={`${exam.subjectId}-${exam.unitId || 'int'}-${idx}`}
+                  onClick={() => handleStartExam(exam)}
+                  className="w-full text-left p-5 rounded-xl border transition-all group relative overflow-hidden bg-white border-gray-200 hover:border-emerald-500 hover:shadow-md"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="font-bold text-lg block mb-1 text-gray-800 group-hover:text-emerald-700">
+                        {exam.subjectName}
+                      </span>
+                      <span className="text-sm font-medium text-emerald-600">
+                        {exam.type === 'integrative' ? 'Examen Integrador' : exam.unitName}
+                      </span>
                     </div>
-                    <div className="text-xs flex items-center gap-1.5 mt-3">
-                      {isCompleted ? (
-                        <span className="text-gray-400 font-semibold flex items-center gap-1">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                          Examen Realizado
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 group-hover:text-emerald-600 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                          Habilitado
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })
+                  </div>
+                  <div className="text-xs flex items-center gap-1.5 mt-3">
+                    <span className="text-gray-400 group-hover:text-emerald-600 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      Habilitado
+                    </span>
+                  </div>
+                </button>
+              ))
             ) : (
               <div className="text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-300">
                 <p className="text-gray-400">No hay exámenes habilitados en este momento.</p>
@@ -439,25 +437,45 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
       return ans !== undefined;
     });
 
+    const answeredCount = currentExam.questions.filter(q => {
+      const ans = answers[q.id];
+      if (q.questionType === 'multiple_select') return Array.isArray(ans) && ans.length > 0;
+      return ans !== undefined;
+    }).length;
+
     return (
-      <div className="min-h-screen bg-white pb-24">
-        <header className="bg-white border-b border-gray-100 sticky top-0 z-10 shadow-sm">
-          <div className="max-w-3xl mx-auto px-4 py-4 flex justify-between items-center">
-            <div>
-              <h2 className="font-bold text-gray-900">{currentExam.subject.name}</h2>
-              <p className="text-xs text-emerald-600 font-medium mb-1">
-                {currentExam.config.type === 'integrative' ? 'Examen Integrador' :
-                  activeExams.find(e => e.unitId === currentExam.config.unitId)?.unitName}
-              </p>
-              <p className="text-xs text-gray-500">Alumno: <span className="font-semibold">{studentName}</span></p>
+      <div className="min-h-screen bg-gray-50 pb-28">
+        {/* Compact sticky HUD — mobile-first, two columns */}
+        <header className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm safe-top">
+          <div className="flex items-center justify-between px-4 py-2 max-w-2xl mx-auto">
+            {/* Left: subject + student */}
+            <div className="min-w-0 mr-3">
+              <p className="text-xs font-bold text-gray-800 truncate leading-tight">{currentExam.subject.name}</p>
+              <p className="text-[11px] text-gray-400 truncate leading-tight">{studentName}</p>
             </div>
-            <div className="text-sm font-bold bg-emerald-50 text-emerald-700 px-4 py-1.5 rounded-full border border-emerald-100">
-              {Object.keys(answers).length} / {currentExam.questions.length}
+            {/* Right: timer + counter */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Answer counter */}
+              <div className="flex flex-col items-center bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1">
+                <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide leading-none">Respondidas</span>
+                <span className="text-base font-bold text-emerald-700 leading-tight">{answeredCount}<span className="text-xs font-normal text-emerald-500">/{currentExam.questions.length}</span></span>
+              </div>
+              {/* Countdown */}
+              {studentCountdown !== null && (
+                <div className={`flex flex-col items-center rounded-lg px-3 py-1 border ${studentCountdown <= 300
+                  ? 'bg-red-50 border-red-300 animate-pulse'
+                  : 'bg-green-50 border-green-300'}`}>
+                  <span className={`text-[10px] font-semibold uppercase tracking-wide leading-none ${studentCountdown <= 300 ? 'text-red-600' : 'text-green-700'}`}>Tiempo</span>
+                  <span className={`text-base font-mono font-bold leading-tight ${studentCountdown <= 300 ? 'text-red-700' : 'text-green-700'}`}>
+                    {studentCountdown <= 0 ? '00:00' : `${String(Math.floor(studentCountdown / 60)).padStart(2, '0')}:${String(studentCountdown % 60).padStart(2, '0')}`}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </header>
 
-        <div className="max-w-3xl mx-auto p-4 space-y-8 mt-8">
+        <div className="max-w-2xl mx-auto px-4 pt-4 space-y-6">
           {currentExam.questions.length === 0 ? (
             <div className="text-center py-20 text-gray-400 bg-gray-50 rounded-xl border border-gray-200 border-dashed">
               <p>Este examen está activo, pero el profesor no ha seleccionado ninguna pregunta para esta sesión.</p>
@@ -555,7 +573,7 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
         {currentExam.questions.length > 0 && (
           <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 flex justify-center shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.1)]">
             <Button
-              onClick={submitExam}
+              onClick={() => submitExam()}
               disabled={!isAllAnswered}
               className="w-full max-w-md py-3 text-lg shadow-xl shadow-emerald-100"
             >

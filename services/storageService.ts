@@ -34,6 +34,18 @@ export const storageService = {
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS unit_name TEXT`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS type TEXT`;
 
+      // Timer fields for exam configs
+      await sql`ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 0`;
+      await sql`ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS end_timestamp BIGINT`;
+
+      // Exam session names (for custom naming of exam sessions in Results view)
+      await sql`
+        CREATE TABLE IF NOT EXISTS exam_session_names (
+          session_key TEXT PRIMARY KEY,
+          name TEXT NOT NULL
+        )
+      `;
+
       // Backfill IDs for exam_configs if they are null
       try {
         await sql`UPDATE exam_configs SET id = gen_random_uuid() WHERE id IS NULL`;
@@ -225,8 +237,15 @@ export const storageService = {
         unitId: row.unit_id,
         questionType: row.question_type || 'multiple_choice',
         text: row.text,
-        options: row.options,
-        correctOptionIndex: row.correct_option_index,
+        options: Array.isArray(row.options)
+          ? row.options
+          : (typeof row.options === 'string' ? JSON.parse(row.options) : row.options),
+        correctOptionIndex: (() => {
+          const raw = row.correct_option_index;
+          if (raw === null || raw === undefined) return 0;
+          if (typeof raw === 'number') return raw;
+          try { return JSON.parse(raw); } catch { return Number(raw); }
+        })(),
         isActive: row.is_active,
         isActiveIntegrative: row.is_active_integrative,
         topic: row.topic
@@ -311,7 +330,9 @@ export const storageService = {
         type: row.type as 'unit' | 'integrative',
         isActive: row.is_active,
         passingGrade: row.passing_grade,
-        integrativeConfig
+        integrativeConfig,
+        durationMinutes: row.duration_minutes ? Number(row.duration_minutes) : 0,
+        endTimestamp: row.end_timestamp ? Number(row.end_timestamp) : undefined,
       };
     } catch (e) {
       console.error("Error fetching config:", e);
@@ -329,37 +350,30 @@ export const storageService = {
   saveExamConfig: async (config: ExamConfig): Promise<void> => {
     // Serialize integrativeConfig if present
     const integrativeConfigJson = config.integrativeConfig ? JSON.stringify(config.integrativeConfig) : null;
-
-    // Use DELETE + INSERT pattern to avoid all constraint issues
-    // This forcefully removes any corrupted/duplicate records
+    const durationMinutes = config.durationMinutes ?? 0;
+    const endTimestamp = config.endTimestamp ?? null;
 
     if (config.unitId) {
-      // For unit exams: delete by subject_id AND unit_id
       await sql`
         DELETE FROM exam_configs 
         WHERE subject_id = ${config.subjectId} 
           AND unit_id = ${config.unitId}
       `;
-
-      // Insert fresh record
       const newId = crypto.randomUUID();
       await sql`
-        INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config)
-        VALUES (${newId}, ${config.subjectId}, ${config.unitId}, ${config.type}, ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
+        INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config, duration_minutes, end_timestamp)
+        VALUES (${newId}, ${config.subjectId}, ${config.unitId}, ${config.type}, ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson}, ${durationMinutes}, ${endTimestamp})
       `;
     } else {
-      // For integrative exams: delete by subject_id AND type='integrative'
       await sql`
         DELETE FROM exam_configs 
         WHERE subject_id = ${config.subjectId} 
           AND type = 'integrative'
       `;
-
-      // Insert fresh record
       const newId = crypto.randomUUID();
       await sql`
-        INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config)
-        VALUES (${newId}, ${config.subjectId}, NULL, 'integrative', ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson})
+        INSERT INTO exam_configs (id, subject_id, unit_id, type, is_active, passing_grade, integrative_config, duration_minutes, end_timestamp)
+        VALUES (${newId}, ${config.subjectId}, NULL, 'integrative', ${config.isActive}, ${config.passingGrade}, ${integrativeConfigJson}, ${durationMinutes}, ${endTimestamp})
       `;
     }
   },
@@ -440,12 +454,38 @@ export const storageService = {
     }
   },
 
+  // Exam Session Names
+  getSessionName: async (sessionKey: string): Promise<string | null> => {
+    try {
+      const result = await sql`SELECT name FROM exam_session_names WHERE session_key = ${sessionKey}`;
+      return result.length > 0 ? result[0].name as string : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  getAllSessionNames: async (): Promise<Record<string, string>> => {
+    try {
+      const result = await sql`SELECT session_key, name FROM exam_session_names`;
+      return Object.fromEntries(result.map((r: any) => [r.session_key, r.name]));
+    } catch (e) {
+      return {};
+    }
+  },
+
+  setSessionName: async (sessionKey: string, name: string): Promise<void> => {
+    await sql`
+      INSERT INTO exam_session_names (session_key, name) VALUES (${sessionKey}, ${name})
+      ON CONFLICT (session_key) DO UPDATE SET name = ${name}
+    `;
+  },
+
   // Local Security (Prevent Retakes on same device)
   markExamCompletedLocally: (subjectId: string) => {
     // This can remain synchronous as it's device-specific logic
     const stored = localStorage.getItem(STORAGE_KEYS.COMPLETED_LOCAL);
     const list = stored ? JSON.parse(stored) : [];
-    
+
     const now = Date.now();
     // Filter and clean up expired or old format entries
     const validList = list.filter((item: any) => {
@@ -458,7 +498,7 @@ export const storageService = {
 
     // Check if the current subjectId is already in the valid list
     const isAlreadyCompleted = validList.some((item: any) => item.id === subjectId);
-    
+
     if (!isAlreadyCompleted) {
       localStorage.setItem(STORAGE_KEYS.COMPLETED_LOCAL, JSON.stringify([...validList, { id: subjectId, timestamp: now }]));
     } else {
@@ -471,10 +511,10 @@ export const storageService = {
     // This can remain synchronous
     const stored = localStorage.getItem(STORAGE_KEYS.COMPLETED_LOCAL);
     if (!stored) return [];
-    
+
     const list = JSON.parse(stored);
     const now = Date.now();
-    
+
     // Filter and clean up expired entries
     const validList = list.filter((item: any) => {
       if (typeof item === 'string') return false; // Expire legacy strings immediately

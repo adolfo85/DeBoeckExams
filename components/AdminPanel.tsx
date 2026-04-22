@@ -7,7 +7,7 @@ import { generateQuestionsAI } from '../services/geminiService';
 
 export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; teacherName: string; isSuperAdmin: boolean }> = ({ onLogout, teacherId, teacherName, isSuperAdmin }) => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [activeTab, setActiveTab] = useState<'subjects' | 'questions' | 'exams' | 'results' | 'users'>('subjects');
+  const [activeTab, setActiveTab] = useState<'subjects' | 'questions' | 'results' | 'users'>('subjects');
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
 
   // State to handle the "Finish & View Results" workflow
@@ -74,8 +74,8 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
       <div className={`flex-1 w-full mx-auto p-4 md:p-8 transition-all duration-300 ${activeTab === 'questions' ? 'max-w-[95%]' : 'max-w-7xl'}`}>
         <div className="flex flex-wrap gap-2 mb-8 border-b border-gray-100 pb-1">
           {(isSuperAdmin
-            ? ['subjects', 'questions', 'exams', 'results', 'users']
-            : ['subjects', 'questions', 'exams', 'results'] as const).map((tab: any) => (
+            ? ['subjects', 'questions', 'results', 'users']
+            : ['subjects', 'questions', 'results'] as const).map((tab: any) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -86,7 +86,6 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
               >
                 {tab === 'subjects' && 'Espacios Curriculares'}
                 {tab === 'questions' && 'Banco de Preguntas/Configuración de Examen'}
-                {tab === 'exams' && 'Activación/Desactivación de Examen'}
                 {tab === 'results' && 'Resultados'}
                 {tab === 'users' && (
                   <span className="flex items-center gap-2">
@@ -103,25 +102,25 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
         </div>
 
         <div>
-          {activeTab === 'subjects' && (
+          <div style={{ display: activeTab === 'subjects' ? 'block' : 'none' }}>
             <SubjectManager subjects={subjects} onUpdate={refreshSubjects} teacherId={teacherId} />
-          )}
-          {activeTab === 'questions' && (
+          </div>
+          <div style={{ display: activeTab === 'questions' ? 'block' : 'none' }}>
             <QuestionManager subjects={subjects} selectedSubjectId={selectedSubjectId} onSelectSubject={setSelectedSubjectId} />
-          )}
-          {activeTab === 'exams' && (
-            <ExamControl subjects={subjects} onFinishAndShowResults={handleFinishExamAndShowResults} />
-          )}
-          {activeTab === 'results' && (
+          </div>
+          <div style={{ display: activeTab === 'results' ? 'block' : 'none' }}>
             <ResultsView
               subjects={subjects}
               initialFilterSubjectId={resultsFilterSubjectId}
               teacherId={teacherId}
               isSuperAdmin={isSuperAdmin}
+              isActive={activeTab === 'results'}
             />
-          )}
-          {activeTab === 'users' && isSuperAdmin && (
-            <UserManagement onUpdate={loadPendingCount} />
+          </div>
+          {isSuperAdmin && (
+            <div style={{ display: activeTab === 'users' ? 'block' : 'none' }}>
+              <UserManagement onUpdate={loadPendingCount} />
+            </div>
           )}
         </div>
       </div>
@@ -327,12 +326,21 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
   const [migrationModal, setMigrationModal] = useState<{ isOpen: boolean; question: Question | null }>({ isOpen: false, question: null });
   const [migrationTargetUnitId, setMigrationTargetUnitId] = useState<string>('');
 
+  // Exam Activation States
+  const [examConfig, setExamConfig] = useState<ExamConfig | null>(null);
+  const [passingGrade, setPassingGrade] = useState<4 | 6>(6);
+  const [durationMinutes, setDurationMinutes] = useState<number>(0);
+  const [isActivating, setIsActivating] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null); // seconds remaining
+
   useEffect(() => {
     if (selectedSubjectId) {
       loadUnits(selectedSubjectId);
+      loadExamConfig(selectedSubjectId);
     } else {
       setQuestions([]);
       setUnits([]);
+      setExamConfig(null);
     }
   }, [selectedSubjectId]);
 
@@ -340,6 +348,44 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
     const u = await storageService.getUnits(sId);
     setUnits(u);
   };
+
+  const loadExamConfig = async (sId: string) => {
+    const config = await storageService.getExamConfig(sId);
+    setExamConfig(config);
+    if (config.passingGrade === 4 || config.passingGrade === 6) {
+      setPassingGrade(config.passingGrade as 4 | 6);
+    }
+    setDurationMinutes(config.durationMinutes ?? 0);
+    // Restore countdown if exam is active and has endTimestamp
+    if (config.isActive && config.endTimestamp) {
+      const rem = Math.floor((config.endTimestamp - Date.now()) / 1000);
+      setCountdown(rem > 0 ? rem : 0);
+    } else {
+      setCountdown(null);
+    }
+  };
+
+  // Countdown tick + auto-deactivate
+  useEffect(() => {
+    if (countdown === null || countdown <= 0) return;
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(timer);
+          // Auto-deactivate when time is up
+          if (selectedSubjectId) {
+            storageService.getExamConfig(selectedSubjectId).then(cfg => {
+              storageService.saveExamConfig({ ...cfg, isActive: false, endTimestamp: undefined });
+              setExamConfig(c => c ? { ...c, isActive: false, endTimestamp: undefined } : c);
+            });
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [countdown === null ? null : 'active', selectedSubjectId]);
 
   useEffect(() => {
     if (selectedSubjectId) {
@@ -473,11 +519,12 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
     setExpandedUnits(newSet);
   };
 
-  const applyIntegrativeSelection = async () => {
-    if (!selectedSubjectId) return;
+  const applyIntegrativeSelection = async (): Promise<boolean> => {
+    if (!selectedSubjectId) return false;
+    if (selectedUnitsForIntegrative.size === 0 && integrativeMode === 'random') return false;
+    if (manuallySelectedQuestions.size === 0 && integrativeMode === 'manual') return false;
 
     if (integrativeMode === 'random') {
-      // Random mode: select N random questions from each selected unit
       const allQuestionsToActivate: string[] = [];
 
       for (const unitId of selectedUnitsForIntegrative) {
@@ -490,22 +537,64 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
         allQuestionsToActivate.push(...selected.map(q => q.id));
       }
 
-      // Update all questions: deactivate all, then activate selected
       const allQuestions = await storageService.getQuestions(selectedSubjectId);
       for (const q of allQuestions) {
         await storageService.updateQuestion({ ...q, isActiveIntegrative: allQuestionsToActivate.includes(q.id) });
       }
     } else {
-      // Manual mode: activate only manually selected questions
       const allQuestions = await storageService.getQuestions(selectedSubjectId);
       for (const q of allQuestions) {
         await storageService.updateQuestion({ ...q, isActiveIntegrative: manuallySelectedQuestions.has(q.id) });
       }
     }
 
-    // Reload questions
     loadQuestions(selectedSubjectId, selectedUnitId);
-    alert('Selección de preguntas integrativas aplicada correctamente.');
+    return true;
+  };
+
+  const handleActivateExam = async () => {
+    if (!selectedSubjectId) return;
+    if (selectedUnitsForIntegrative.size === 0 && integrativeMode === 'random') {
+      alert('Por favor, selecciona al menos una unidad antes de activar el examen.');
+      return;
+    }
+    if (manuallySelectedQuestions.size === 0 && integrativeMode === 'manual') {
+      alert('Por favor, selecciona al menos una pregunta de forma manual antes de activar el examen.');
+      return;
+    }
+    setIsActivating(true);
+    try {
+      await applyIntegrativeSelection();
+      const endTs = durationMinutes > 0 ? Date.now() + durationMinutes * 60000 : undefined;
+      const newConfig: ExamConfig = {
+        id: examConfig?.id,
+        subjectId: selectedSubjectId,
+        unitId: undefined,
+        type: 'integrative',
+        isActive: true,
+        passingGrade,
+        integrativeConfig: examConfig?.integrativeConfig,
+        durationMinutes,
+        endTimestamp: endTs,
+      };
+      await storageService.saveExamConfig(newConfig);
+      await loadExamConfig(selectedSubjectId);
+      alert('¡Examen activado correctamente!');
+    } finally {
+      setIsActivating(false);
+    }
+  };
+
+  const handleDeactivateExam = async () => {
+    if (!selectedSubjectId || !examConfig) return;
+    setIsActivating(true);
+    try {
+      await storageService.saveExamConfig({ ...examConfig, isActive: false, endTimestamp: undefined });
+      setCountdown(null);
+      await loadExamConfig(selectedSubjectId);
+    } finally {
+      setIsActivating(false);
+    }
   };
 
   const handleMigrateClick = (question: Question) => {
@@ -785,11 +874,12 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
 
             {/* Apply Button */}
             <Button
-              onClick={applyIntegrativeSelection}
-              disabled={selectedUnitsForIntegrative.size === 0}
+              onClick={() => applyIntegrativeSelection()}
+              disabled={selectedUnitsForIntegrative.size === 0 && integrativeMode === 'random' || manuallySelectedQuestions.size === 0 && integrativeMode === 'manual'}
               className="w-full justify-center mt-4"
+              variant="secondary"
             >
-              Aplicar Selección
+              Aplicar Selección de Preguntas
               {integrativeMode === 'random' && selectedUnitsForIntegrative.size > 0 && (
                 <span className="ml-2">
                   ({Array.from(selectedUnitsForIntegrative).reduce((sum, unitId) =>
@@ -800,6 +890,115 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
                 <span className="ml-2">({manuallySelectedQuestions.size} preguntas)</span>
               )}
             </Button>
+
+            {/* Exam Status Banner */}
+            {examConfig !== null && (
+              <div className={`mt-3 px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-bold ${examConfig.isActive
+                ? 'bg-green-100 text-green-800 border border-green-300'
+                : 'bg-gray-100 text-gray-500 border border-gray-200'
+                }`}>
+                <span className={`w-2 h-2 rounded-full ${examConfig.isActive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                EXAMEN {examConfig.isActive ? 'ACTIVO' : 'INACTIVO'}
+              </div>
+            )}
+
+            {/* Passing Grade Selector */}
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <label className="block text-sm font-semibold text-amber-800 mb-2">📋 Nota de Aprobación</label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPassingGrade(4)}
+                  className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all border ${passingGrade === 4
+                    ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                    : 'bg-white text-amber-700 border-amber-300 hover:border-amber-500'
+                    }`}
+                >
+                  4 — Cuatro
+                </button>
+                <button
+                  onClick={() => setPassingGrade(6)}
+                  className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all border ${passingGrade === 6
+                    ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                    : 'bg-white text-amber-700 border-amber-300 hover:border-amber-500'
+                    }`}
+                >
+                  6 — Seis
+                </button>
+              </div>
+              <p className="text-xs text-amber-600 mt-2">
+                El alumno necesita el <strong>60%</strong> de respuestas correctas para obtener la nota de aprobación ({passingGrade}).
+              </p>
+            </div>
+
+            {/* Duration Selector */}
+            <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <label className="block text-sm font-semibold text-blue-800 mb-2">⏱ Tiempo de Examen</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min={0}
+                  max={300}
+                  value={durationMinutes}
+                  onChange={e => setDurationMinutes(Math.max(0, Number(e.target.value)))}
+                  disabled={examConfig?.isActive}
+                  className="w-24 px-3 py-1.5 border border-blue-300 rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
+                />
+                <span className="text-sm text-blue-700 font-medium">minutos</span>
+                {durationMinutes > 0 && (
+                  <span className="text-xs text-blue-500">
+                    ({Math.floor(durationMinutes / 60) > 0 ? `${Math.floor(durationMinutes / 60)}h ` : ''}{durationMinutes % 60 > 0 ? `${durationMinutes % 60}min` : ''})
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-blue-600 mt-2">
+                {durationMinutes === 0
+                  ? 'Sin límite de tiempo. El examen se desactiva manualmente.'
+                  : `Al activar, el examen se cerrará automáticamente en ${durationMinutes} minutos.`}
+              </p>
+              {/* Countdown display */}
+              {countdown !== null && examConfig?.isActive && (
+                <div className={`mt-3 px-4 py-3 rounded-lg text-center font-mono font-bold text-2xl tracking-widest border ${countdown <= 60
+                  ? 'bg-red-100 text-red-700 border-red-300 animate-pulse'
+                  : countdown <= 300
+                    ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                    : 'bg-blue-100 text-blue-800 border-blue-200'}`}
+                >
+                  {countdown <= 0 ? '⏰ Tiempo agotado' : `${String(Math.floor(countdown / 60)).padStart(2, '0')}:${String(countdown % 60).padStart(2, '0')}`}
+                  <p className="text-xs font-sans font-normal mt-0.5 opacity-75">tiempo restante</p>
+                </div>
+              )}
+            </div>
+
+            {/* Activate / Deactivate Exam Button */}
+            <div className="mt-3">
+              {examConfig?.isActive ? (
+                <Button
+                  onClick={handleDeactivateExam}
+                  disabled={isActivating}
+                  className="w-full justify-center bg-red-600 hover:bg-red-700 text-white border-red-600"
+                >
+                  {isActivating ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
+                      Desactivando...
+                    </span>
+                  ) : '🔴 Desactivar Examen'}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleActivateExam}
+                  disabled={isActivating}
+                  className="w-full justify-center bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600"
+                >
+                  {isActivating ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
+                      Activando...
+                    </span>
+                  ) : '🟢 Activar Examen'}
+                </Button>
+              )}
+            </div>
           </div>
         )}
 
@@ -1129,7 +1328,7 @@ const ExamControl: React.FC<{ subjects: Subject[], onFinishAndShowResults: (id: 
   );
 };
 
-const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: string, teacherId: string, isSuperAdmin: boolean }> = ({ subjects, initialFilterSubjectId, teacherId, isSuperAdmin }) => {
+const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: string, teacherId: string, isSuperAdmin: boolean, isActive: boolean }> = ({ subjects, initialFilterSubjectId, teacherId, isSuperAdmin, isActive }) => {
   const [results, setResults] = useState<ExamResult[]>([]);
   const [filterSubjectId, setFilterSubjectId] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
@@ -1141,14 +1340,15 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
   }, [initialFilterSubjectId]);
 
   useEffect(() => {
-    refreshResults();
-  }, []);
+    if (isActive) {
+      refreshResults();
+    }
+  }, [isActive]);
 
   const refreshResults = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      // If super admin, fetch all (pass undefined). If teacher, pass teacherId.
       const allResults = await storageService.getResults(isSuperAdmin ? undefined : teacherId);
       setResults(allResults.sort((a, b) => b.timestamp - a.timestamp));
     } catch (e) {
@@ -1173,100 +1373,106 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
     return `¿Estás seguro de que quieres borrar el historial de ${subjectName}?`;
   };
 
-  const handlePrintPDF = () => {
-    if (!tableRef.current) return;
+  // ── Session grouping ──────────────────────────────────────────────────────
+  const makeSessionKey = (r: ExamResult) => {
+    const dateKey = new Date(r.timestamp).toLocaleDateString('sv-SE'); // YYYY-MM-DD
+    return `${r.subjectId}-${r.type || 'integrative'}-${r.unitId || 'integrative'}-${dateKey}`;
+  };
 
-    // Create a new window for printing
-    const printWindow = window.open('', '', 'height=800,width=900');
-    if (!printWindow) return;
-
-    const filtered = filterSubjectId === 'all'
-      ? results
-      : results.filter(r => r.subjectId === filterSubjectId);
-
-    const subjectTitle = filterSubjectId === 'all' ? 'Reporte General' : subjects.find(s => s.id === filterSubjectId)?.name;
-
-    printWindow.document.write('<html><head><title>Resultados de Exámenes</title>');
-    // Minimal css for print
-    printWindow.document.write(`
-        <style>
-            body { font-family: sans-serif; padding: 20px; color: #111; }
-            h1 { text-align: center; font-size: 24px; margin-bottom: 5px; }
-            h2 { text-align: center; font-size: 16px; font-weight: normal; color: #555; margin-bottom: 30px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
-            th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-            th { background-color: #f3f3f3; font-weight: bold; }
-            .failed { color: #d32f2f; font-weight: bold; }
-            .passed { color: #388e3c; font-weight: bold; }
-            @media print {
-                @page { size: A4; margin: 2cm; }
-            }
-        </style>
-    `);
-    printWindow.document.write('</head><body>');
-    printWindow.document.write(`<h1>DeBoeck Exams</h1>`);
-    printWindow.document.write(`<h2>${subjectTitle} - Fecha: ${new Date().toLocaleDateString()}</h2>`);
-
-    let tableHtml = `
-        <table>
-            <thead>
-                <tr>
-                    <th>Fecha</th>
-                    <th>Alumno</th>
-                    <th>Materia</th>
-                    <th>Tipo</th>
-                    <th>Aciertos</th>
-                    <th>Nota</th>
-                    <th>Estado</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-
-    filtered.forEach(r => {
-      tableHtml += `
-            <tr>
-                <td>${new Date(r.timestamp).toLocaleDateString()} ${new Date(r.timestamp).toLocaleTimeString()}</td>
-                <td>${r.studentName}</td>
-                <td>${r.subjectName}</td>
-                <td>${r.type === 'integrative' ? 'Integrador' : (r.unitName || 'Unidad')}</td>
-                <td>${r.score}/${r.totalQuestions} (${r.percentage.toFixed(0)}%)</td>
-                <td>${r.grade.toFixed(1)}</td>
-                <td class="${r.passed ? 'passed' : 'failed'}">${r.passed ? 'APROBADO' : 'REPROBADO'}</td>
-            </tr>
-        `;
-    });
-
-    tableHtml += `</tbody></table>`;
-    printWindow.document.write(tableHtml);
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
-    printWindow.focus();
-    // Allow styles to load slightly before printing
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
+  const makeDefaultName = (r: ExamResult) => {
+    const dateStr = new Date(r.timestamp).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const tipo = r.type === 'integrative' ? 'Integrador' : (r.unitName || 'Unidad');
+    return `${r.subjectName} — ${tipo} — ${dateStr}`;
   };
 
   const filteredResults = filterSubjectId === 'all'
     ? results
     : results.filter(r => r.subjectId === filterSubjectId);
 
-  // Stats calculation
-  const total = filteredResults.length;
-  const passed = filteredResults.filter(r => r.passed).length;
-  const avgGrade = total > 0 ? (filteredResults.reduce((acc, r) => acc + r.grade, 0) / total).toFixed(1) : '-';
-  const passRate = total > 0 ? ((passed / total) * 100).toFixed(0) : '-';
-
-  // Safety check
-  if (!subjects) {
-    console.error("ResultsView: subjects prop is missing");
-    return <div className="p-4 text-red-500">Error interno: Faltan datos de materias.</div>;
+  const sessionsMap = new Map<string, { key: string; results: ExamResult[] }>();
+  for (const r of filteredResults) {
+    const key = makeSessionKey(r);
+    if (!sessionsMap.has(key)) sessionsMap.set(key, { key, results: [] });
+    sessionsMap.get(key)!.results.push(r);
   }
+  const sessions = Array.from(sessionsMap.values()).sort(
+    (a, b) => Math.max(...b.results.map(r => r.timestamp)) - Math.max(...a.results.map(r => r.timestamp))
+  );
 
-  console.log('ResultsView rendering', { isLoading, error, resultsCount: results.length, subjectsCount: subjects.length });
+  // ── Session names ─────────────────────────────────────────────────────────
+  const [sessionNames, setSessionNamesState] = useState<Record<string, string>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-  // Show loading state
+  useEffect(() => {
+    if (results.length > 0) {
+      storageService.getAllSessionNames().then(names => setSessionNamesState(names));
+    }
+  }, [results]);
+
+  const getSessionLabel = (session: { key: string; results: ExamResult[] }) =>
+    sessionNames[session.key] || makeDefaultName(session.results[0]);
+
+  const startEditing = (key: string, currentLabel: string) => {
+    setEditingKey(key);
+    setEditingValue(currentLabel);
+  };
+
+  const saveEditing = async () => {
+    if (!editingKey || !editingValue.trim()) return;
+    await storageService.setSessionName(editingKey, editingValue.trim());
+    setSessionNamesState(prev => ({ ...prev, [editingKey]: editingValue.trim() }));
+    setEditingKey(null);
+  };
+
+  const toggleExpand = (key: string) => {
+    setExpandedKeys(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  // ── Print PDF ─────────────────────────────────────────────────────────────
+  const handlePrintPDF = (sessionResults: ExamResult[], sessionLabel: string) => {
+    const printWindow = window.open('', '', 'height=800,width=900');
+    if (!printWindow) return;
+    printWindow.document.write('<html><head><title>Resultados de Exámenes</title>');
+    printWindow.document.write(`
+        <style>
+            body { font-family: sans-serif; padding: 20px; color: #111; }
+            h1 { text-align: center; font-size: 20px; margin-bottom: 5px; }
+            h2 { text-align: center; font-size: 14px; font-weight: normal; color: #555; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background: #f3f3f3; font-weight: bold; }
+            .failed { color: #d32f2f; font-weight: bold; }
+            .passed { color: #388e3c; font-weight: bold; }
+            @media print { @page { size: A4; margin: 2cm; } }
+        </style>
+    `);
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(`<h1>DeBoeck Exams</h1><h2>${sessionLabel}</h2>`);
+    let html = `<table><thead><tr><th>Alumno</th><th>Aciertos</th><th>Nota</th><th>Estado</th><th>Hora</th></tr></thead><tbody>`;
+    sessionResults.forEach(r => {
+      html += `<tr><td>${r.studentName}</td><td>${r.score}/${r.totalQuestions} (${r.percentage.toFixed(0)}%)</td><td>${r.grade.toFixed(1)}</td><td class="${r.passed ? 'passed' : 'failed'}">${r.passed ? 'APROBADO' : 'REPROBADO'}</td><td>${new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+    printWindow.document.write(html);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    setTimeout(() => { printWindow.focus(); printWindow.print(); }, 500);
+  };
+
+  // ── Global stats ──────────────────────────────────────────────────────────
+  const total = filteredResults.length;
+  const passedTotal = filteredResults.filter(r => r.passed).length;
+  const avgGrade = total > 0 ? (filteredResults.reduce((acc, r) => acc + r.grade, 0) / total).toFixed(1) : '-';
+  const passRate = total > 0 ? ((passedTotal / total) * 100).toFixed(0) : '-';
+
+  if (!subjects) return <div className="p-4 text-red-500">Error interno: Faltan datos de materias.</div>;
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center py-20">
@@ -1278,13 +1484,9 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
     );
   }
 
-  // Show error state
   if (error) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-        <svg className="w-12 h-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-        </svg>
         <h3 className="text-lg font-semibold text-red-800 mb-2">Error al cargar resultados</h3>
         <p className="text-red-600 mb-4">{error}</p>
         <Button onClick={refreshResults} variant="primary">Reintentar</Button>
@@ -1294,12 +1496,12 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
 
   return (
     <div className="space-y-6">
+      {/* Header & filters */}
       <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 border-b border-gray-100 pb-4">
         <div>
           <h2 className="text-xl font-bold text-gray-800">Historial de Exámenes</h2>
-          <p className="text-sm text-gray-500 mt-1">Reporte detallado de alumnos y calificaciones.</p>
+          <p className="text-sm text-gray-500 mt-1">Organizado por sesión de examen. Haz clic para ver los alumnos.</p>
         </div>
-
         <div className="flex flex-wrap gap-3">
           <select
             value={filterSubjectId}
@@ -1312,79 +1514,165 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
             ))}
           </select>
           <Button variant="outline" onClick={refreshResults} className="text-xs border-gray-300">Actualizar</Button>
-          <Button variant="secondary" onClick={handlePrintPDF} disabled={filteredResults.length === 0} className="text-xs flex items-center gap-1">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-            Imprimir / PDF
-          </Button>
-          <Button variant="danger" onClick={() => setDeleteModalOpen(true)} disabled={filteredResults.length === 0} className="text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100">
+          <Button
+            variant="danger"
+            onClick={() => setDeleteModalOpen(true)}
+            disabled={filteredResults.length === 0}
+            className="text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+          >
             Borrar Historial
           </Button>
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Global summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center text-center">
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center">
           <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Total Evaluados</span>
           <span className="text-3xl font-bold text-gray-800 mt-1">{total}</span>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center text-center">
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center">
           <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Promedio Nota</span>
           <span className="text-3xl font-bold text-emerald-600 mt-1">{avgGrade}</span>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center text-center">
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center text-center">
           <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Aprobados</span>
           <div className="mt-1 flex items-baseline gap-1">
             <span className="text-3xl font-bold text-gray-800">{passRate}%</span>
-            <span className="text-sm text-gray-400">({passed}/{total})</span>
+            <span className="text-sm text-gray-400">({passedTotal}/{total})</span>
           </div>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 shadow-sm">
-        <table className="min-w-full divide-y divide-gray-200" ref={tableRef}>
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Fecha</th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Alumno</th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Materia</th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Tipo</th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Aciertos</th>
-              <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nota Final</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {filteredResults.map(r => (
-              <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4 text-sm text-gray-500">{new Date(r.timestamp).toLocaleDateString()} <span className="text-xs text-gray-400 ml-1">{new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{r.studentName}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{r.subjectName}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {r.type === 'integrative' ? (
-                    <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-md text-xs font-medium border border-purple-100">Integrador</span>
-                  ) : (
-                    <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-medium border border-blue-100">{r.unitName || 'Unidad'}</span>
+      {/* Session cards */}
+      {sessions.length === 0 ? (
+        <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+          <p className="text-gray-400">No hay resultados que coincidan con el filtro.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sessions.map(session => {
+            const label = getSessionLabel(session);
+            const isExpanded = expandedKeys.has(session.key);
+            const sResults = session.results.sort((a, b) => b.timestamp - a.timestamp);
+            const sTotal = sResults.length;
+            const sPassed = sResults.filter(r => r.passed).length;
+            const sAvg = (sResults.reduce((acc, r) => acc + r.grade, 0) / sTotal).toFixed(1);
+            const sDate = new Date(Math.max(...sResults.map(r => r.timestamp)));
+            const isEditing = editingKey === session.key;
+
+            return (
+              <div key={session.key} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* Session header */}
+                <div
+                  className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                  onClick={() => !isEditing && toggleExpand(session.key)}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <svg
+                      className={`w-5 h-5 text-gray-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                    </svg>
+
+                    {isEditing ? (
+                      <div className="flex items-center gap-2 flex-1" onClick={e => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingValue}
+                          onChange={e => setEditingValue(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveEditing(); if (e.key === 'Escape') setEditingKey(null); }}
+                          className="flex-1 border border-emerald-400 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none text-gray-800"
+                        />
+                        <button onClick={saveEditing} className="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700 font-medium">Guardar</button>
+                        <button onClick={() => setEditingKey(null)} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs rounded-lg hover:bg-gray-200 font-medium">Cancelar</button>
+                      </div>
+                    ) : (
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-800 truncate">{label}</span>
+                          <button
+                            onClick={e => { e.stopPropagation(); startEditing(session.key, label); }}
+                            className="text-gray-300 hover:text-emerald-500 transition-colors flex-shrink-0"
+                            title="Renombrar"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                        </div>
+                        <span className="text-xs text-gray-400">
+                          {sDate.toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {!isEditing && (
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                      <span className="text-xs font-medium text-gray-500">{sTotal} alumnos</span>
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                        Prom: {sAvg}
+                      </span>
+                      <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${sPassed === sTotal ? 'bg-green-100 text-green-700' : sPassed === 0 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {sPassed}/{sTotal} aprobados
+                      </span>
+                      <button
+                        onClick={e => { e.stopPropagation(); handlePrintPDF(sResults, label); }}
+                        className="text-gray-300 hover:text-blue-500 transition-colors"
+                        title="Imprimir/PDF"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </button>
+                    </div>
                   )}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <span className="font-medium">{r.score}</span> <span className="text-xs text-gray-400">/ {r.totalQuestions}</span>
-                  <span className="text-xs text-gray-400">({r.percentage.toFixed(0)}%)</span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-3 py-1 text-xs font-bold rounded-full border ${r.passed ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                    {r.grade.toFixed(1)} {r.passed ? 'APROBADO' : 'REPROBADO'}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {filteredResults.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-400">No hay resultados que coincidan con el filtro.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                </div>
+
+                {/* Expanded student table */}
+                {isExpanded && (
+                  <div className="border-t border-gray-100">
+                    <table className="min-w-full divide-y divide-gray-100" ref={tableRef}>
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Alumno</th>
+                          <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
+                          <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Aciertos</th>
+                          <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">% Correctas</th>
+                          <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Nota Final</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-100">
+                        {sResults.map(r => (
+                          <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-5 py-3 text-sm font-medium text-gray-800">{r.studentName}</td>
+                            <td className="px-5 py-3 text-sm text-gray-500">
+                              {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="px-5 py-3 text-sm text-gray-700">
+                              <span className="font-semibold">{r.score}</span>
+                              <span className="text-gray-400"> / {r.totalQuestions}</span>
+                            </td>
+                            <td className="px-5 py-3 text-sm text-gray-700">{r.percentage.toFixed(0)}%</td>
+                            <td className="px-5 py-3">
+                              <span className={`px-3 py-1 text-xs font-bold rounded-full border ${r.passed ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                {r.grade.toFixed(1)} — {r.passed ? 'APROBADO' : 'REPROBADO'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <Modal
         isOpen={deleteModalOpen}
