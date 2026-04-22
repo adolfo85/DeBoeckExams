@@ -347,6 +347,33 @@ export const storageService = {
     }
   },
 
+  getActiveExams: async (teacherId: string) => {
+    try {
+      const result = await sql`
+        SELECT 
+          s.id as subject_id, 
+          s.name as subject_name, 
+          c.unit_id, 
+          u.name as unit_name, 
+          c.type 
+        FROM exam_configs c
+        JOIN subjects s ON c.subject_id = s.id
+        LEFT JOIN units u ON c.unit_id = u.id
+        WHERE s.teacher_id = ${teacherId} AND c.is_active = true
+      `;
+      return result.map((row: any) => ({
+        subjectId: row.subject_id,
+        subjectName: row.subject_name,
+        unitId: row.unit_id,
+        unitName: row.unit_name,
+        type: row.type as 'unit' | 'integrative'
+      }));
+    } catch (e) {
+      console.error("Error fetching active exams:", e);
+      return [];
+    }
+  },
+
   saveExamConfig: async (config: ExamConfig): Promise<void> => {
     // Serialize integrativeConfig if present
     const integrativeConfigJson = config.integrativeConfig ? JSON.stringify(config.integrativeConfig) : null;

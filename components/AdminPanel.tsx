@@ -17,6 +17,9 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
   const [pendingTeachersCount, setPendingTeachersCount] = useState<number>(0);
 
   useEffect(() => {
+    storageService.migrateSchema().catch(err => {
+      console.error('Schema migration failed:', err);
+    });
     refreshSubjects();
     if (isSuperAdmin) {
       loadPendingCount();

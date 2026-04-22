@@ -17,6 +17,12 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   // Teacher selection
   const [availableTeachers, setAvailableTeachers] = useState<Teacher[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<{ id: string; name: string } | null>(null);
+  const activeTeacherIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeTeacherIdRef.current = selectedTeacher?.id || null;
+  }, [selectedTeacher]);
+
   const [selectTeacherStep, setSelectTeacherStep] = useState<'selecting' | 'selected'>('selecting');
 
   const [currentExam, setCurrentExam] = useState<{
@@ -65,37 +71,26 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     };
 
     const loadTeacherExams = async (teacherId: string) => {
+      // We still need subjects if the UI references them outside of the exam list, 
+      // but activeExams can be loaded in 1 query now.
       const allSubjects = await storageService.getSubjects(teacherId);
       setSubjects(allSubjects);
 
-      const active: typeof activeExams = [];
-      for (const s of allSubjects) {
-        const intConfig = await storageService.getExamConfig(s.id);
-        if (intConfig.isActive) {
-          active.push({ subjectId: s.id, subjectName: s.name, type: 'integrative' });
-        }
-        const units = await storageService.getUnits(s.id);
-        for (const u of units) {
-          const uConfig = await storageService.getExamConfig(s.id, u.id);
-          if (uConfig.isActive) {
-            active.push({ subjectId: s.id, subjectName: s.name, unitId: u.id, unitName: u.name, type: 'unit' });
-          }
-        }
-      }
+      const active = await storageService.getActiveExams(teacherId);
       setActiveExams(active);
       setIsLoading(false);
     };
 
     loadData();
 
-    // Poll every 30 seconds to reflect exam activation/deactivation in real time
+    // Poll every 5 seconds to reflect exam activation/deactivation in real time
     const interval = setInterval(async () => {
       const urlParams = new URLSearchParams(window.location.search);
-      const teacherId = urlParams.get('t');
+      const teacherId = urlParams.get('t') || activeTeacherIdRef.current;
       if (teacherId) {
         await loadTeacherExams(teacherId);
       }
-    }, 30000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);
@@ -299,26 +294,11 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
                     setSelectTeacherStep('selected');
                     setIsLoading(true);
 
-                    // Load teacher's exams
+                    // Load teacher's exams with single optimized query
                     const allSubjects = await storageService.getSubjects(teacher.id);
                     setSubjects(allSubjects);
 
-                    const active: typeof activeExams = [];
-                    for (const s of allSubjects) {
-                      // Integrative
-                      const intConfig = await storageService.getExamConfig(s.id);
-                      if (intConfig.isActive) {
-                        active.push({ subjectId: s.id, subjectName: s.name, type: 'integrative' });
-                      }
-                      // Units
-                      const units = await storageService.getUnits(s.id);
-                      for (const u of units) {
-                        const uConfig = await storageService.getExamConfig(s.id, u.id);
-                        if (uConfig.isActive) {
-                          active.push({ subjectId: s.id, subjectName: s.name, unitId: u.id, unitName: u.name, type: 'unit' });
-                        }
-                      }
-                    }
+                    const active = await storageService.getActiveExams(teacher.id);
                     setActiveExams(active);
                     setIsLoading(false);
                   }}

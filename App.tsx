@@ -10,12 +10,8 @@ function App() {
   const [view, setView] = useState<'landing' | 'student' | 'adminLogin' | 'adminPanel'>('landing');
   const [currentTeacher, setCurrentTeacher] = useState<{ id: string; name: string; isSuperAdmin?: boolean } | null>(null);
 
-  // Run schema migration on app mount
+  // Initial routing
   useEffect(() => {
-    storageService.migrateSchema().catch(err => {
-      console.error('Schema migration failed:', err);
-    });
-
     // Check if there's a teacher ID in the URL
     const urlParams = new URLSearchParams(window.location.search);
     const teacherId = urlParams.get('t');
