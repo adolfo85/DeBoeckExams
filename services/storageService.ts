@@ -33,6 +33,7 @@ export const storageService = {
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS unit_id UUID`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS unit_name TEXT`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS type TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS answers_json TEXT`;
 
       // Timer fields for exam configs
       await sql`ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 0`;
@@ -420,8 +421,8 @@ export const storageService = {
   // Results
   saveResult: async (result: ExamResult): Promise<void> => {
     await sql`
-      INSERT INTO results (id, subject_id, subject_name, student_name, score, total_questions, percentage, grade, passed, timestamp, unit_id, unit_name, type)
-      VALUES (${result.id}, ${result.subjectId}, ${result.subjectName}, ${result.studentName}, ${result.score}, ${result.totalQuestions}, ${result.percentage}, ${result.grade}, ${result.passed}, ${result.timestamp}, ${result.unitId || null}, ${result.unitName || null}, ${result.type || 'integrative'})
+      INSERT INTO results (id, subject_id, subject_name, student_name, score, total_questions, percentage, grade, passed, timestamp, unit_id, unit_name, type, answers_json)
+      VALUES (${result.id}, ${result.subjectId}, ${result.subjectName}, ${result.studentName}, ${result.score}, ${result.totalQuestions}, ${result.percentage}, ${result.grade}, ${result.passed}, ${result.timestamp}, ${result.unitId || null}, ${result.unitName || null}, ${result.type || 'integrative'}, ${result.answersJson || null})
     `;
   },
 
@@ -450,10 +451,11 @@ export const storageService = {
         percentage: Number(row.percentage),
         grade: Number(row.grade),
         passed: row.passed,
-        timestamp: Number(row.timestamp), // Ensure number
+        timestamp: Number(row.timestamp),
         unitId: row.unit_id,
         unitName: row.unit_name,
-        type: row.type as 'unit' | 'integrative'
+        type: row.type as 'unit' | 'integrative',
+        answersJson: row.answers_json || undefined,
       }));
     } catch (e) {
       console.error("Error fetching results:", e);
@@ -491,6 +493,10 @@ export const storageService = {
     } else {
       await sql`DELETE FROM results`;
     }
+  },
+
+  deleteResultById: async (id: string): Promise<void> => {
+    await sql`DELETE FROM results WHERE id = ${id}`;
   },
 
   // Exam Session Names

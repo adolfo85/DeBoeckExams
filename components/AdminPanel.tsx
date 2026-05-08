@@ -1338,6 +1338,9 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
   const [error, setError] = useState<string | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const [auditLogs, setAuditLogs] = useState<AuditEvent[]>([]);
+  const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
+  // key: `${subjectId}-${unitId||''}` → Question[]
+  const [questionCache, setQuestionCache] = useState<Record<string, Question[]>>({});
 
   useEffect(() => {
     setFilterSubjectId(initialFilterSubjectId);
@@ -1355,7 +1358,6 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
       setError(null);
       const allResults = await storageService.getResults(isSuperAdmin ? undefined : teacherId);
       setResults(allResults.sort((a, b) => b.timestamp - a.timestamp));
-      // Also refresh audit logs
       const logs = await storageService.getAuditLogs(48);
       setAuditLogs(logs);
     } catch (e) {
@@ -1363,6 +1365,22 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
       setError("Error al cargar los resultados. Por favor, intenta de nuevo.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDeleteResultById = async (id: string) => {
+    await storageService.deleteResultById(id);
+    if (expandedResultId === id) setExpandedResultId(null);
+    refreshResults();
+  };
+
+  const toggleResultDetail = async (r: ExamResult) => {
+    if (expandedResultId === r.id) { setExpandedResultId(null); return; }
+    setExpandedResultId(r.id);
+    const cacheKey = `${r.subjectId}-${r.unitId || ''}`;
+    if (!questionCache[cacheKey]) {
+      const qs = await storageService.getQuestions(r.subjectId, r.unitId);
+      setQuestionCache(prev => ({ ...prev, [cacheKey]: qs }));
     }
   };
 
@@ -1525,7 +1543,7 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
             variant="danger"
             onClick={() => setDeleteModalOpen(true)}
             disabled={filteredResults.length === 0}
-            className="text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+            className="text-xs bg-red-600 text-white border border-red-700 hover:bg-red-700"
           >
             Borrar Historial
           </Button>
@@ -1645,32 +1663,74 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
                     <table className="min-w-full divide-y divide-gray-100" ref={tableRef}>
                       <thead className="bg-gray-50">
                         <tr>
+                          <th className="w-8 px-3 py-3" />
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Alumno</th>
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Aciertos</th>
-                          <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">% Correctas</th>
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Nota Final</th>
+                          <th className="px-3 py-3" />
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-100">
-                        {sResults.map(r => (
-                          <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-5 py-3 text-sm font-medium text-gray-800">{r.studentName}</td>
-                            <td className="px-5 py-3 text-sm text-gray-500">
-                              {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td className="px-5 py-3 text-sm text-gray-700">
-                              <span className="font-semibold">{r.score}</span>
-                              <span className="text-gray-400"> / {r.totalQuestions}</span>
-                            </td>
-                            <td className="px-5 py-3 text-sm text-gray-700">{r.percentage.toFixed(0)}%</td>
-                            <td className="px-5 py-3">
-                              <span className={`px-3 py-1 text-xs font-bold rounded-full border ${r.passed ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                {r.grade.toFixed(1)} — {r.passed ? 'APROBADO' : 'REPROBADO'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {sResults.map(r => {
+                          const isDetailOpen = expandedResultId === r.id;
+                          const cacheKey = `${r.subjectId}-${r.unitId || ''}`;
+                          return (
+                            <React.Fragment key={r.id}>
+                              <tr className="hover:bg-gray-50 transition-colors">
+                                {/* Expand chevron */}
+                                <td className="px-3 py-3">
+                                  <button
+                                    onClick={() => toggleResultDetail(r)}
+                                    title="Ver detalle de respuestas"
+                                    className="text-gray-300 hover:text-emerald-600 transition-colors"
+                                  >
+                                    <svg className={`w-4 h-4 transition-transform ${isDetailOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                  </button>
+                                </td>
+                                <td className="px-5 py-3 text-sm font-medium text-gray-800">{r.studentName}</td>
+                                <td className="px-5 py-3 text-sm text-gray-500">
+                                  {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td className="px-5 py-3 text-sm text-gray-700">
+                                  <span className="font-semibold">{r.score}</span>
+                                  <span className="text-gray-400"> / {r.totalQuestions}</span>
+                                </td>
+                                <td className="px-5 py-3">
+                                  <span className={`px-3 py-1 text-xs font-bold rounded-full border ${r.passed ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                    {r.grade.toFixed(1)} — {r.passed ? 'APROBADO' : 'REPROBADO'}
+                                  </span>
+                                </td>
+                                {/* Per-result delete */}
+                                <td className="px-3 py-3">
+                                  <button
+                                    onClick={() => { if (confirm(`¿Eliminar resultado de ${r.studentName}?`)) handleDeleteResultById(r.id); }}
+                                    title="Eliminar este resultado"
+                                    className="text-gray-300 hover:text-red-500 transition-colors"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </td>
+                              </tr>
+                              {/* Question detail row */}
+                              {isDetailOpen && (
+                                <tr>
+                                  <td colSpan={6} className="px-0 py-0 bg-gray-50 border-b border-gray-100">
+                                    <QuestionDetail
+                                      result={r}
+                                      questions={questionCache[cacheKey] || []}
+                                      isLoading={!questionCache[cacheKey]}
+                                    />
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1771,6 +1831,106 @@ const AuditLogPanel: React.FC<{ logs: AuditEvent[] }> = ({ logs }) => {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+};
+
+// ── QuestionDetail subcomponent ─────────────────────────────────────────────
+const QuestionDetail: React.FC<{
+  result: ExamResult;
+  questions: Question[];
+  isLoading: boolean;
+}> = ({ result, questions, isLoading }) => {
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-6 py-4 text-sm text-gray-400">
+        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+        Cargando preguntas…
+      </div>
+    );
+  }
+
+  if (!result.answersJson) {
+    return (
+      <p className="px-6 py-4 text-sm text-gray-400 italic">
+        No hay registro detallado para este examen (rendido antes de esta actualización).
+      </p>
+    );
+  }
+
+  let answers: Record<string, number | number[]> = {};
+  try { answers = JSON.parse(result.answersJson); } catch { return null; }
+
+  // Only show questions that were actually shown to this student
+  const shownQs = questions.filter(q => answers[q.id] !== undefined);
+  if (shownQs.length === 0) {
+    return <p className="px-6 py-4 text-sm text-gray-400 italic">Sin preguntas registradas.</p>;
+  }
+
+  return (
+    <div className="px-6 py-4 space-y-2">
+      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
+        Detalle de respuestas — {shownQs.length} preguntas
+      </p>
+      {shownQs.map((q, idx) => {
+        const userAns = answers[q.id];
+        let isCorrect = false;
+        if (Array.isArray(q.correctOptionIndex)) {
+          isCorrect =
+            Array.isArray(userAns) &&
+            (userAns as number[]).length === q.correctOptionIndex.length &&
+            q.correctOptionIndex.every(i => (userAns as number[]).includes(i));
+        } else {
+          isCorrect = userAns === q.correctOptionIndex;
+        }
+
+        const userAnsText = Array.isArray(userAns)
+          ? (userAns as number[]).map(i => q.options[i] ?? '?').join(', ')
+          : q.options[userAns as number] ?? 'Sin respuesta';
+
+        const correctAnsText = Array.isArray(q.correctOptionIndex)
+          ? q.correctOptionIndex.map(i => q.options[i]).join(', ')
+          : q.options[q.correctOptionIndex as number];
+
+        return (
+          <div
+            key={q.id}
+            className={`p-3 rounded-lg border text-sm flex items-start gap-3 ${
+              isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+            }`}
+          >
+            {/* ✓ / ✗ badge */}
+            <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${
+              isCorrect ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`}>
+              {isCorrect ? '✓' : '✗'}
+            </span>
+
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 leading-snug">
+                {idx + 1}. {q.text}
+              </p>
+              {isCorrect ? (
+                <p className="text-green-700 text-xs mt-1">
+                  <span className="font-semibold">Respondió correctamente:</span> {userAnsText}
+                </p>
+              ) : (
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-red-700 text-xs">
+                    <span className="font-semibold">Respondió:</span> {userAnsText}
+                  </p>
+                  <p className="text-emerald-700 text-xs">
+                    <span className="font-semibold">Correcta:</span> {correctAnsText}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };

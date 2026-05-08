@@ -57,15 +57,17 @@ export interface ExamResult {
   studentName: string;
   subjectId: string;
   subjectName: string;
-  score: number; // Number of correct answers
+  score: number;
   totalQuestions: number;
   percentage: number;
-  grade: number; // Calculated grade
+  grade: number;
   passed: boolean;
   timestamp: number;
   unitId?: string;
   unitName?: string;
   type?: 'unit' | 'integrative';
+  /** JSON-serialized Record<questionId, number | number[]> — stored when exam is submitted via ExamView */
+  answersJson?: string;
 }
 
 export interface AdminState {

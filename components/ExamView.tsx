@@ -451,6 +451,7 @@ export const ExamView: React.FC<ExamViewProps> = ({
         grade,
         passed: percentage >= 60,
         timestamp: Date.now(),
+        answersJson: JSON.stringify(answers), // persists per-question answers for admin review
       };
 
       // ── Persist to Neon DB via storageService ──
