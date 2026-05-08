@@ -262,14 +262,18 @@ export const ExamView: React.FC<ExamViewProps> = ({
   const [isBlurred, setIsBlurred] = useState(false); // triggers blank-screen
 
   // ── Rate-limited audit refs ─────────────────────────────────────────────
-  // Hard limits so audit logging never saturates the DB:
-  //   • Max 8 events logged per exam session (per student)
-  //   • Min 20 seconds between any two logged events
-  // The blank-screen overlay still activates on EVERY blur (no limit there).
-  const AUDIT_COOLDOWN_MS = 20_000; // 20 s between DB writes
-  const AUDIT_MAX_PER_SESSION = 8;  // absolute cap per student per exam
-  const auditCountRef  = useRef(0);       // events logged this session
-  const auditLastRef   = useRef(0);       // timestamp of last logged event
+  const AUDIT_COOLDOWN_MS = 20_000;
+  const AUDIT_MAX_PER_SESSION = 8;
+  const auditCountRef       = useRef(0);
+  const auditLastRef        = useRef(0);
+
+  // ── Escalation refs ─────────────────────────────────────────────────────
+  // exitCountRef: every real exit (no rate limit) — drives the 3-strike rule
+  // isCurrentlyExitedRef: prevents blur+visibilitychange from counting twice
+  const exitCountRef         = useRef(0);
+  const isCurrentlyExitedRef = useRef(false);
+  const [showWarning, setShowWarning]             = useState(false);
+  const [shouldAutoSubmit, setShouldAutoSubmit]   = useState(false);
 
   // ── Anti-leak: detect focus loss & log it ──
   useEffect(() => {
@@ -297,17 +301,40 @@ export const ExamView: React.FC<ExamViewProps> = ({
       });
     };
 
+    // ── Escalation handlers ───────────────────────────────────────────────
+    const handleExit = (type: 'focus_loss' | 'visibility_hidden') => {
+      // Guard: only count once per continuous exit (blur+visibilitychange may both fire)
+      if (!isCurrentlyExitedRef.current) {
+        isCurrentlyExitedRef.current = true;
+        exitCountRef.current++;
+        if (exitCountRef.current >= 3) {
+          setShouldAutoSubmit(true); // triggers auto-submit via useEffect below
+        }
+      }
+      setIsBlurred(true);
+      tryLog(type);
+    };
+
+    const handleReturn = () => {
+      if (isCurrentlyExitedRef.current) {
+        isCurrentlyExitedRef.current = false;
+        if (exitCountRef.current === 2) {
+          setShowWarning(true); // show warning after 2nd exit
+        }
+      }
+      setIsBlurred(false);
+    };
+
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
-        setIsBlurred(true);
-        tryLog('visibility_hidden');
+        handleExit('visibility_hidden');
       } else {
-        setIsBlurred(false);
+        handleReturn();
       }
     };
 
-    const handleBlur  = () => { setIsBlurred(true);  tryLog('focus_loss'); };
-    const handleFocus = () => { setIsBlurred(false); };
+    const handleBlur  = () => handleExit('focus_loss');
+    const handleFocus = () => handleReturn();
 
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('blur',  handleBlur);
@@ -320,6 +347,16 @@ export const ExamView: React.FC<ExamViewProps> = ({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentData.name, studentData.dni, subjectName]);
+
+  // ── Auto-submit on 3rd exit ──────────────────────────────────────────────
+  // Runs after render triggered by setShouldAutoSubmit(true).
+  // handleSubmit reads the latest `answers` from that render → correct.
+  useEffect(() => {
+    if (shouldAutoSubmit && !isSubmitting) {
+      handleSubmit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoSubmit]);
 
   const totalQuestions = questions.length;
   const currentQuestion = questions[currentIndex];
@@ -442,20 +479,14 @@ export const ExamView: React.FC<ExamViewProps> = ({
   // ─────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* ── Blank-screen overlay: shows instantly on focus loss ── */}
+      {/* ── Blank-screen overlay: shows instantly on every focus loss ── */}
       {isBlurred && (
         <div
           aria-hidden="true"
           style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 99999,
-            background: 'white',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '1rem',
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'white', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: '1rem',
           }}
         >
           <svg style={{ width: 56, height: 56, color: '#f59e0b' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -468,6 +499,49 @@ export const ExamView: React.FC<ExamViewProps> = ({
           <p style={{ fontSize: '0.875rem', color: '#6b7280', textAlign: 'center', maxWidth: 280 }}>
             Volvé a esta pantalla para continuar. Cada salida queda registrada.
           </p>
+        </div>
+      )}
+
+      {/* ── 2nd-exit warning modal ── */}
+      {showWarning && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 99998,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '1.5rem',
+          }}
+        >
+          <div style={{
+            background: 'white', borderRadius: '1.25rem', padding: '2rem',
+            maxWidth: 340, width: '100%', textAlign: 'center',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.35)',
+          }}>
+            <div style={{ fontSize: 52, marginBottom: '0.75rem' }}>⚠️</div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1f2937', marginBottom: '0.75rem' }}>
+              Actividad Detectada
+            </h3>
+            <p style={{
+              fontSize: '0.875rem', color: '#4b5563',
+              lineHeight: 1.6, marginBottom: '1.5rem',
+            }}>
+              Detectamos actividad fuera de la app.<br />
+              <strong style={{ color: '#dc2626' }}>
+                Al siguiente intento tu examen será bloqueado y enviado automáticamente.
+              </strong>
+            </p>
+            <button
+              onClick={() => setShowWarning(false)}
+              style={{
+                background: '#dc2626', color: 'white', border: 'none',
+                borderRadius: '0.75rem', padding: '0.8rem 0',
+                fontWeight: 700, fontSize: '0.95rem',
+                cursor: 'pointer', width: '100%',
+              }}
+            >
+              Entendido
+            </button>
+          </div>
         </div>
       )}
 
