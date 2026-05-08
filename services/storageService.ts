@@ -1,4 +1,4 @@
-import { Subject, Question, ExamConfig, ExamResult, Teacher, Unit } from '../types';
+import { Subject, Question, ExamConfig, ExamResult, Teacher, Unit, AuditEvent } from '../types';
 import { sql } from './db';
 
 const STORAGE_KEYS = {
@@ -43,6 +43,18 @@ export const storageService = {
         CREATE TABLE IF NOT EXISTS exam_session_names (
           session_key TEXT PRIMARY KEY,
           name TEXT NOT NULL
+        )
+      `;
+
+      // Audit log table (anti-leak incident tracking)
+      await sql`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id UUID PRIMARY KEY,
+          student_name TEXT NOT NULL,
+          student_dni TEXT NOT NULL,
+          subject_name TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          timestamp BIGINT NOT NULL
         )
       `;
 
@@ -556,5 +568,52 @@ export const storageService = {
 
     // Return an array of just the IDs for easy checking in StudentView
     return validList.map((item: any) => item.id);
-  }
+  },
+
+  // ── Audit Logs ───────────────────────────────────────────────────────────
+  /**
+   * Records a suspicious focus-loss event from a student's exam session.
+   * The table is created on first use so no manual migration is needed.
+   * Uses fire-and-forget: never throws so it never disrupts the student UI.
+   */
+  logAuditEvent: async (event: Omit<AuditEvent, 'id'>): Promise<void> => {
+    // Table is guaranteed to exist (created in migrateSchema on teacher login).
+    // Silent fail — never interrupts the student exam.
+    try {
+      const id = crypto.randomUUID();
+      await sql`
+        INSERT INTO audit_logs (id, student_name, student_dni, subject_name, event_type, timestamp)
+        VALUES (${id}, ${event.studentName}, ${event.studentDni}, ${event.subjectName}, ${event.eventType}, ${event.timestamp})
+      `;
+    } catch (e) {
+      console.warn('[Audit] Could not log event:', e);
+    }
+  },
+
+  /**
+   * Fetches audit events, optionally filtered to a recent window (hours).
+   * Returns newest first.
+   */
+  getAuditLogs: async (lastHours = 48): Promise<AuditEvent[]> => {
+    try {
+      const since = Date.now() - lastHours * 60 * 60 * 1000;
+      const rows = await sql`
+        SELECT * FROM audit_logs
+        WHERE timestamp > ${since}
+        ORDER BY timestamp DESC
+        LIMIT 200
+      `;
+      return rows.map((r: any) => ({
+        id: r.id,
+        studentName: r.student_name,
+        studentDni: r.student_dni,
+        subjectName: r.subject_name,
+        eventType: r.event_type as AuditEvent['eventType'],
+        timestamp: Number(r.timestamp),
+      }));
+    } catch (e) {
+      console.warn('[Audit] Could not fetch logs:', e);
+      return [];
+    }
+  },
 };

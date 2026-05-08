@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { storageService } from '../services/storageService';
 import { Subject, Question, ExamConfig, ExamResult, Teacher } from '../types';
 import { Button } from './Button';
+import { ExamView } from './ExamView';
 
 export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdminLoginClick }) => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -32,6 +33,7 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   } | null>(null);
 
   const [studentName, setStudentName] = useState('');
+  const [studentDni, setStudentDni] = useState('');
   const [examStep, setExamStep] = useState<'select' | 'name_input' | 'taking' | 'finished'>('select');
   const [answers, setAnswers] = useState<Record<string, number | number[]>>({});
   const [finalResult, setFinalResult] = useState<ExamResult | null>(null);
@@ -126,7 +128,7 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   };
 
   const confirmNameAndStart = () => {
-    if (!studentName.trim()) return;
+    if (!studentName.trim() || !studentDni.trim()) return;
     setExamStep('taking');
   };
 
@@ -389,19 +391,43 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
             </p>
           </div>
 
-          <label className="block text-sm font-semibold text-gray-700 mb-2">Ingresa tu Nombre Completo</label>
-          <input
-            type="text"
-            className="w-full bg-white border border-gray-300 rounded-lg p-4 text-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none mb-8 placeholder-gray-400 shadow-sm"
-            placeholder="Ej: Juan Pérez"
-            value={studentName}
-            onChange={(e) => setStudentName(e.target.value)}
-            autoFocus
-          />
+          <div className="space-y-4 mb-8">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre Completo</label>
+              <input
+                id="student-name-input"
+                type="text"
+                className="w-full bg-white border border-gray-300 rounded-lg p-4 text-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none placeholder-gray-400 shadow-sm"
+                placeholder="Ej: Juan Pérez"
+                value={studentName}
+                onChange={(e) => setStudentName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">DNI</label>
+              <input
+                id="student-dni-input"
+                type="text"
+                inputMode="numeric"
+                className="w-full bg-white border border-gray-300 rounded-lg p-4 text-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none placeholder-gray-400 shadow-sm"
+                placeholder="Ej: 35123456"
+                value={studentDni}
+                onChange={(e) => setStudentDni(e.target.value.replace(/\D/g, ''))}
+                maxLength={10}
+              />
+            </div>
+          </div>
 
           <div className="flex gap-3">
             <Button variant="secondary" onClick={() => setExamStep('select')} className="flex-1">Cancelar</Button>
-            <Button onClick={confirmNameAndStart} disabled={!studentName.trim()} className="flex-1 shadow-lg shadow-emerald-200">Comenzar</Button>
+            <Button
+              onClick={confirmNameAndStart}
+              disabled={!studentName.trim() || !studentDni.trim()}
+              className="flex-1 shadow-lg shadow-emerald-200"
+            >
+              Comenzar
+            </Button>
           </div>
         </div>
       </div>
@@ -409,6 +435,33 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   }
 
   if (examStep === 'taking' && currentExam) {
+    // ── Delegated to ExamView (one-question-at-a-time + watermark) ──
+    return (
+      <ExamView
+        questions={currentExam.questions}
+        studentData={{ name: studentName, dni: studentDni }}
+        subjectId={currentExam.subject.id}
+        subjectName={currentExam.subject.name}
+        passingGrade={currentExam.config.passingGrade}
+        onFinish={(result) => {
+          setFinalResult(result);
+          // Rebuild reviewData from current questions + answers (ExamView saves to DB internally)
+          setReviewData({
+            questions: currentExam.questions,
+            userAnswers: {} as Record<string, number>, // answers are internal to ExamView
+          });
+          setCurrentExam(null);
+          setAnswers({});
+          setStudentCountdown(null);
+          if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+          setExamStep('finished');
+        }}
+      />
+    );
+  }
+
+  // ── Legacy taking block (kept for reference, unreachable) ──
+  if (false && examStep === 'taking' && currentExam) {
     const isAllAnswered = currentExam.questions.length > 0 && currentExam.questions.every(q => {
       const ans = answers[q.id];
       if (q.questionType === 'multiple_select') {

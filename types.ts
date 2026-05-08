@@ -71,3 +71,13 @@ export interface ExamResult {
 export interface AdminState {
   isAuthenticated: boolean;
 }
+
+/** Registered each time a student's browser loses focus during an active exam */
+export interface AuditEvent {
+  id: string;
+  studentName: string;
+  studentDni: string;
+  subjectName: string;
+  eventType: 'focus_loss' | 'visibility_hidden';
+  timestamp: number; // Unix ms
+}

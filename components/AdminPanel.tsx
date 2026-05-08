@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { storageService } from '../services/storageService';
-import { Subject, Question, ExamConfig, ExamResult, Unit } from '../types';
+import { Subject, Question, ExamConfig, ExamResult, Unit, AuditEvent } from '../types';
 import { Button } from './Button';
 import { Modal } from './Modal';
 import { generateQuestionsAI } from '../services/geminiService';
@@ -1337,6 +1337,7 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditEvent[]>([]);
 
   useEffect(() => {
     setFilterSubjectId(initialFilterSubjectId);
@@ -1354,6 +1355,9 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
       setError(null);
       const allResults = await storageService.getResults(isSuperAdmin ? undefined : teacherId);
       setResults(allResults.sort((a, b) => b.timestamp - a.timestamp));
+      // Also refresh audit logs
+      const logs = await storageService.getAuditLogs(48);
+      setAuditLogs(logs);
     } catch (e) {
       console.error("Error loading results:", e);
       setError("Error al cargar los resultados. Por favor, intenta de nuevo.");
@@ -1677,6 +1681,9 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
         </div>
       )}
 
+      {/* ── Audit Log Panel ───────────────────────────────────────────── */}
+      <AuditLogPanel logs={auditLogs} />
+
       <Modal
         isOpen={deleteModalOpen}
         onClose={() => setDeleteModalOpen(false)}
@@ -1687,6 +1694,83 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
         confirmText="Borrar Historial"
         variant="danger"
       />
+    </div>
+  );
+};
+
+// ── AuditLogPanel subcomponent ──────────────────────────────────────────────
+const AuditLogPanel: React.FC<{ logs: AuditEvent[] }> = ({ logs }) => {
+  // Group by student (name+dni) and count incidents
+  const grouped = logs.reduce((acc, log) => {
+    const key = `${log.studentName}||${log.studentDni}`;
+    if (!acc[key]) acc[key] = { name: log.studentName, dni: log.studentDni, events: [] };
+    acc[key].events.push(log);
+    return acc;
+  }, {} as Record<string, { name: string; dni: string; events: AuditEvent[] }>);
+
+  const rows = Object.values(grouped).sort((a, b) => b.events.length - a.events.length);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-2 h-6 rounded-full bg-amber-400" />
+        <h3 className="text-lg font-bold text-gray-800">Registro de Actividad Sospechosa</h3>
+        <span className="text-xs bg-amber-100 text-amber-700 font-bold px-2.5 py-0.5 rounded-full border border-amber-200">
+          Últimas 48 hs
+        </span>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">
+        Cada fila representa un alumno que salió de la pantalla del examen (posible captura de pantalla).
+        Ordenado por mayor cantidad de incidencias.
+      </p>
+
+      <div className="bg-white rounded-xl border border-amber-200 overflow-hidden shadow-sm">
+        <table className="min-w-full divide-y divide-gray-100">
+          <thead className="bg-amber-50">
+            <tr>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Alumno</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">DNI</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Materia (last)</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Incidencias</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Última vez</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-100">
+            {rows.map(row => {
+              const count = row.events.length;
+              const last = row.events[0]; // already sorted newest-first
+              const level = count >= 5 ? 'high' : count >= 2 ? 'medium' : 'low';
+              return (
+                <tr key={`${row.name}-${row.dni}`} className="hover:bg-amber-50 transition-colors">
+                  <td className="px-5 py-3 text-sm font-semibold text-gray-800">{row.name}</td>
+                  <td className="px-5 py-3 text-sm text-gray-500 font-mono">{row.dni}</td>
+                  <td className="px-5 py-3 text-sm text-gray-600">{last.subjectName}</td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                      level === 'high'
+                        ? 'bg-red-50 text-red-700 border-red-200'
+                        : level === 'medium'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-gray-50 text-gray-600 border-gray-200'
+                    }`}>
+                      {level === 'high' && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
+                      {count} {count === 1 ? 'salida' : 'salidas'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-xs text-gray-400">
+                    {new Date(last.timestamp).toLocaleString('es-AR', {
+                      day: '2-digit', month: '2-digit',
+                      hour: '2-digit', minute: '2-digit'
+                    })}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
