@@ -1742,7 +1742,13 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
       )}
 
       {/* ── Audit Log Panel ───────────────────────────────────────────── */}
-      <AuditLogPanel logs={auditLogs} />
+      <AuditLogPanel
+        logs={auditLogs}
+        onDelete={async () => {
+          await storageService.deleteAuditLogs();
+          refreshResults();
+        }}
+      />
 
       <Modal
         isOpen={deleteModalOpen}
@@ -1759,28 +1765,53 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
 };
 
 // ── AuditLogPanel subcomponent ──────────────────────────────────────────────
-const AuditLogPanel: React.FC<{ logs: AuditEvent[] }> = ({ logs }) => {
+const AuditLogPanel: React.FC<{ logs: AuditEvent[]; onDelete: () => Promise<void> }> = ({ logs, onDelete }) => {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Group by student (name+dni) and count incidents
-  const grouped = logs.reduce((acc, log) => {
+  type StudentGroup = { name: string; dni: string; events: AuditEvent[] };
+  const grouped: Record<string, StudentGroup> = logs.reduce((acc, log) => {
     const key = `${log.studentName}||${log.studentDni}`;
     if (!acc[key]) acc[key] = { name: log.studentName, dni: log.studentDni, events: [] };
     acc[key].events.push(log);
     return acc;
-  }, {} as Record<string, { name: string; dni: string; events: AuditEvent[] }>);
+  }, {} as Record<string, StudentGroup>);
 
-  const rows = Object.values(grouped).sort((a, b) => b.events.length - a.events.length);
+  const rows: StudentGroup[] = Object.values(grouped).sort((a, b) => b.events.length - a.events.length);
 
   if (rows.length === 0) return null;
 
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    await onDelete();
+    setIsDeleting(false);
+    setConfirmOpen(false);
+  };
+
   return (
     <div className="mt-8">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-2 h-6 rounded-full bg-amber-400" />
-        <h3 className="text-lg font-bold text-gray-800">Registro de Actividad Sospechosa</h3>
-        <span className="text-xs bg-amber-100 text-amber-700 font-bold px-2.5 py-0.5 rounded-full border border-amber-200">
-          Últimas 48 hs
-        </span>
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-6 rounded-full bg-amber-400" />
+          <h3 className="text-lg font-bold text-gray-800">Registro de Actividad Sospechosa</h3>
+          <span className="text-xs bg-amber-100 text-amber-700 font-bold px-2.5 py-0.5 rounded-full border border-amber-200">
+            Últimas 48 hs
+          </span>
+        </div>
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 hover:border-red-300 transition-colors"
+          title="Eliminar todos los registros de actividad sospechosa"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Borrar Registros
+        </button>
       </div>
+
       <p className="text-xs text-gray-500 mb-4">
         Cada fila representa un alumno que salió de la pantalla del examen (posible captura de pantalla).
         Ordenado por mayor cantidad de incidencias.
@@ -1831,6 +1862,47 @@ const AuditLogPanel: React.FC<{ logs: AuditEvent[] }> = ({ logs }) => {
           </tbody>
         </table>
       </div>
+
+      {/* Confirm delete modal */}
+      {confirmOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 border-b border-gray-100 bg-red-50 flex items-center gap-3">
+              <svg className="w-6 h-6 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+              <h3 className="text-base font-bold text-red-800">Borrar Registros de Actividad</h3>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-2">
+                ¿Estás seguro de que querés eliminar <strong>todos</strong> los registros de actividad sospechosa?
+              </p>
+              <p className="text-xs text-gray-400 mb-6">Esta acción es irreversible y liberará espacio en el servidor.</p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setConfirmOpen(false)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  disabled={isDeleting}
+                  className="px-4 py-2 text-sm font-bold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center gap-2"
+                >
+                  {isDeleting ? (
+                    <>
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
+                      Borrando...
+                    </>
+                  ) : 'Borrar Todo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

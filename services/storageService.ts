@@ -597,6 +597,18 @@ export const storageService = {
   },
 
   /**
+   * Deletes all audit log records from the database.
+   * Useful for freeing server space once incidents have been reviewed.
+   */
+  deleteAuditLogs: async (): Promise<void> => {
+    try {
+      await sql`DELETE FROM audit_logs`;
+    } catch (e) {
+      console.warn('[Audit] Could not delete logs:', e);
+    }
+  },
+
+  /**
    * Fetches audit events, optionally filtered to a recent window (hours).
    * Returns newest first.
    */
