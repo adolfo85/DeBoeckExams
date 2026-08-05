@@ -431,10 +431,11 @@ export const ExamView: React.FC<ExamViewProps> = ({
       const total = questions.length;
       const percentage = total === 0 ? 0 : (correctCount / total) * 100;
 
-      // Grade on a 1–10 scale using 60% as the passing threshold
+      // Grade on a 0–10 scale: linear from 0→passingGrade over [0%,60%],
+      // then linear from passingGrade→10 over [60%,100%].
       let grade = 0;
       if (percentage < 60) {
-        grade = 1 + ((passingGrade - 1) * percentage) / 60;
+        grade = (passingGrade * percentage) / 60;
       } else {
         grade = passingGrade + ((10 - passingGrade) * (percentage - 60)) / 40;
       }
