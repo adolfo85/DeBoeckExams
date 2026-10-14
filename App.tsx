@@ -50,12 +50,14 @@ function App() {
       )}
 
       {view === 'adminPanel' && currentTeacher && (
-        <AdminPanel
-          onLogout={handleLogout}
-          teacherId={currentTeacher.id}
-          teacherName={currentTeacher.name}
-          isSuperAdmin={currentTeacher.isSuperAdmin || false}
-        />
+        <div className="admin-theme">
+          <AdminPanel
+            onLogout={handleLogout}
+            teacherId={currentTeacher.id}
+            teacherName={currentTeacher.name}
+            isSuperAdmin={currentTeacher.isSuperAdmin || false}
+          />
+        </div>
       )}
     </div>
   );

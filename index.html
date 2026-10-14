@@ -41,6 +41,69 @@
         font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       }
     </style>
+    <script>
+      /* Admin panel theme: soft dark-green surfaces with higher contrast.
+         Scoped to .admin-theme so student / landing views keep the original look. */
+      (function () {
+        var css = [];
+        function rule(sel, decl) { css.push('.admin-theme ' + sel + '{' + decl + '}'); }
+        function cls(name, state) { return '.' + name.replace(/:/g, '\\:') + (state || ''); }
+        function both(name, decl) {
+          rule(cls(name), decl);
+          rule(cls('hover:' + name, ':hover'), decl);
+          rule(cls('focus:' + name, ':focus'), decl);
+        }
+        // Surfaces
+        var bg = { 'bg-white': '#1b2e27', 'bg-gray-50': '#15251f', 'bg-gray-100': '#223830', 'bg-gray-200': '#2c463b', 'bg-gray-300': '#38574a' };
+        for (var k in bg) both(k, 'background-color:' + bg[k] + '!important');
+        // Text
+        var tx = { 'text-gray-900': '#f1f7f4', 'text-gray-800': '#eaf3ef', 'text-gray-700': '#d3e3dc', 'text-gray-600': '#b6cbc2', 'text-gray-500': '#97b0a5', 'text-gray-400': '#7f998d', 'text-black': '#f1f7f4' };
+        for (var t in tx) both(t, 'color:' + tx[t] + '!important');
+        // Borders / dividers
+        ['border-gray-100', 'border-gray-200', 'border-gray-300'].forEach(function (b, i) {
+          both(b, 'border-color:' + ['#2b443a', '#33503f', '#44665a'][i] + '!important');
+        });
+        rule('.divide-y>:not([hidden])~:not([hidden])', 'border-color:#2f4a3f!important');
+        // Emerald (brand green) tints
+        both('bg-emerald-50', 'background-color:rgba(16,185,129,.14)!important');
+        both('bg-emerald-100', 'background-color:rgba(16,185,129,.24)!important');
+        both('border-emerald-100', 'border-color:rgba(16,185,129,.30)!important');
+        both('border-emerald-200', 'border-color:rgba(16,185,129,.40)!important');
+        both('border-emerald-300', 'border-color:rgba(16,185,129,.55)!important');
+        ['text-emerald-500', 'text-emerald-600'].forEach(function (c) { both(c, 'color:#34d399!important'); });
+        ['text-emerald-700', 'text-emerald-800', 'text-emerald-900'].forEach(function (c) { both(c, 'color:#a7f3d0!important'); });
+        // Other pastel panels -> translucent dark tints with lighter text
+        var pal = {
+          amber: ['245,158,11', '#fcd34d'], yellow: ['234,179,8', '#fde047'], orange: ['249,115,22', '#fdba74'],
+          red: ['239,68,68', '#fca5a5'], rose: ['244,63,94', '#fda4af'], blue: ['59,130,246', '#93c5fd'],
+          sky: ['14,165,233', '#7dd3fc'], indigo: ['99,102,241', '#a5b4fc'], purple: ['168,85,247', '#d8b4fe'],
+          green: ['34,197,94', '#86efac'], teal: ['20,184,166', '#5eead4']
+        };
+        Object.keys(pal).forEach(function (n) {
+          var rgb = pal[n][0], light = pal[n][1];
+          both('bg-' + n + '-50', 'background-color:rgba(' + rgb + ',.13)!important');
+          both('bg-' + n + '-100', 'background-color:rgba(' + rgb + ',.22)!important');
+          ['border-' + n + '-100', 'border-' + n + '-200'].forEach(function (c) { both(c, 'border-color:rgba(' + rgb + ',.38)!important'); });
+          both('border-' + n + '-300', 'border-color:rgba(' + rgb + ',.55)!important');
+          [500, 600, 700, 800, 900].forEach(function (s) { both('text-' + n + '-' + s, 'color:' + light + '!important'); });
+        });
+        // Form controls
+        rule('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea',
+          'background-color:#12211b!important;color:#f1f7f4!important;border-color:#44665a!important');
+        rule('input::placeholder, textarea::placeholder', 'color:#7f998d!important');
+        rule('option', 'background-color:#12211b;color:#f1f7f4');
+        rule('input:focus, select:focus, textarea:focus', 'border-color:#34d399!important;box-shadow:0 0 0 2px rgba(52,211,153,.35)!important');
+        // Table helpers
+        rule('thead', 'background-color:#223830!important');
+        rule('.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl', 'box-shadow:0 4px 18px rgba(0,0,0,.28)!important');
+        // Page background + base text
+        css.push('.admin-theme{background:linear-gradient(160deg,#0e1a15 0%,#14251f 55%,#112019 100%);min-height:100vh;color:#eaf3ef}');
+        css.push('.admin-theme ::-webkit-scrollbar{width:10px;height:10px}.admin-theme ::-webkit-scrollbar-thumb{background:#38574a;border-radius:8px}.admin-theme ::-webkit-scrollbar-track{background:#12211b}');
+        var s = document.createElement('style');
+        s.textContent = css.join('\n');
+        document.head.appendChild(s);
+      })();
+    </script>
 
 <link rel="stylesheet" href="/index.css">
 </head>
