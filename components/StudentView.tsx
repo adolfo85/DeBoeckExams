@@ -135,6 +135,9 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   // Start countdown when exam begins (reads from ref, not stale closure)
   useEffect(() => {
     if (examStep !== 'taking') return;
+    // The countdown + auto-submit now live inside ExamView (it owns the answers).
+    // Keeping a second timer here would submit an empty answer set.
+    if (true) return;
 
     const endTs = examEndTimestampRef.current;
     console.log('[Timer] examStep→taking, endTs from ref:', endTs);
@@ -445,6 +448,7 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
         subjectId={currentExam.subject.id}
         subjectName={currentExam.subject.name}
         passingGrade={currentExam.config.passingGrade}
+        endTimestamp={examEndTimestampRef.current}
         onFinish={(result) => {
           setFinalResult(result);
           // Rebuild reviewData from current questions + answers (ExamView saves to DB internally)

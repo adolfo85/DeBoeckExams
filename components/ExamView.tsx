@@ -21,6 +21,8 @@ export interface ExamViewProps {
   onFinish: (result: ExamResult) => void;
   /** Passing grade threshold (e.g. 6) */
   passingGrade?: number;
+  /** Unix ms when the exam ends (shared with the teacher's countdown). Undefined = no limit */
+  endTimestamp?: number | null;
 }
 
 // ─────────────────────────────────────────────
@@ -254,6 +256,7 @@ export const ExamView: React.FC<ExamViewProps> = ({
   subjectName,
   onFinish,
   passingGrade = 6,
+  endTimestamp = null,
 }) => {
   // ── State ──────────────────────────────────
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -467,6 +470,29 @@ export const ExamView: React.FC<ExamViewProps> = ({
     }
   };
 
+  // ── Exam countdown (synced with teacher via absolute endTimestamp) ──
+  const [remainingSec, setRemainingSec] = useState<number | null>(
+    endTimestamp ? Math.max(0, Math.ceil((endTimestamp - Date.now()) / 1000)) : null
+  );
+  const handleSubmitRef = useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
+  const timeUpFiredRef = useRef(false);
+
+  useEffect(() => {
+    if (!endTimestamp) return;
+    const tick = () => {
+      const rem = Math.max(0, Math.ceil((endTimestamp - Date.now()) / 1000));
+      setRemainingSec(rem);
+      if (rem <= 0 && !timeUpFiredRef.current) {
+        timeUpFiredRef.current = true;
+        handleSubmitRef.current();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [endTimestamp]);
+
   // ── Empty guard ────────────────────────────
   if (totalQuestions === 0) {
     return (
@@ -559,6 +585,26 @@ export const ExamView: React.FC<ExamViewProps> = ({
               <p className="text-xs font-bold text-gray-800 truncate leading-tight">{subjectName}</p>
               <p className="text-[11px] text-gray-400 truncate leading-tight">{studentData.name}</p>
             </div>
+            {/* Time remaining clock */}
+            {remainingSec !== null && (
+              <div
+                id="exam-timer"
+                className={`flex items-center gap-1.5 mr-2 rounded-lg px-3 py-1 flex-shrink-0 border font-mono font-bold text-sm ${
+                  remainingSec <= 60
+                    ? 'bg-red-100 text-red-700 border-red-300 animate-pulse'
+                    : remainingSec <= 300
+                    ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                    : 'bg-blue-50 text-blue-800 border-blue-200'
+                }`}
+                title="Tiempo restante"
+              >
+                <span>⏱</span>
+                <span>
+                  {Math.floor(remainingSec / 3600) > 0 ? `${String(Math.floor(remainingSec / 3600)).padStart(2, '0')}:` : ''}
+                  {String(Math.floor((remainingSec % 3600) / 60)).padStart(2, '0')}:{String(remainingSec % 60).padStart(2, '0')}
+                </span>
+              </div>
+            )}
             {/* Answered pill */}
             <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1 flex-shrink-0">
               <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide">

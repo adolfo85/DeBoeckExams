@@ -371,9 +371,12 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
   // Countdown tick + auto-deactivate
   useEffect(() => {
     if (countdown === null || countdown <= 0) return;
+    const endTs = examConfig?.endTimestamp;
     const timer = setInterval(() => {
       setCountdown(prev => {
-        if (prev === null || prev <= 1) {
+        // Sync with the absolute end time shared with students (avoids drift)
+        const next = endTs ? Math.ceil((endTs - Date.now()) / 1000) : (prev === null ? 0 : prev - 1);
+        if (prev === null || next <= 0) {
           clearInterval(timer);
           // Auto-deactivate when time is up
           if (selectedSubjectId) {
@@ -384,7 +387,7 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
           }
           return 0;
         }
-        return prev - 1;
+        return next;
       });
     }, 1000);
     return () => clearInterval(timer);
