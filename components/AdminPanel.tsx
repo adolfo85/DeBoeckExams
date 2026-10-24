@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { storageService } from '../services/storageService';
-import { Subject, Question, ExamConfig, ExamResult, Unit } from '../types';
+import { Subject, Question, ExamConfig, ExamResult, Unit, AuditEvent } from '../types';
 import { Button } from './Button';
 import { Modal } from './Modal';
 import { generateQuestionsAI } from '../services/geminiService';
@@ -371,9 +371,12 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
   // Countdown tick + auto-deactivate
   useEffect(() => {
     if (countdown === null || countdown <= 0) return;
+    const endTs = examConfig?.endTimestamp;
     const timer = setInterval(() => {
       setCountdown(prev => {
-        if (prev === null || prev <= 1) {
+        // Sync with the absolute end time shared with students (avoids drift)
+        const next = endTs ? Math.ceil((endTs - Date.now()) / 1000) : (prev === null ? 0 : prev - 1);
+        if (prev === null || next <= 0) {
           clearInterval(timer);
           // Auto-deactivate when time is up
           if (selectedSubjectId) {
@@ -384,7 +387,7 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
           }
           return 0;
         }
-        return prev - 1;
+        return next;
       });
     }, 1000);
     return () => clearInterval(timer);
@@ -1337,6 +1340,10 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
+  const [auditLogs, setAuditLogs] = useState<AuditEvent[]>([]);
+  const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
+  // key: `${subjectId}-${unitId||''}` → Question[]
+  const [questionCache, setQuestionCache] = useState<Record<string, Question[]>>({});
 
   useEffect(() => {
     setFilterSubjectId(initialFilterSubjectId);
@@ -1354,11 +1361,29 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
       setError(null);
       const allResults = await storageService.getResults(isSuperAdmin ? undefined : teacherId);
       setResults(allResults.sort((a, b) => b.timestamp - a.timestamp));
+      const logs = await storageService.getAuditLogs(48);
+      setAuditLogs(logs);
     } catch (e) {
       console.error("Error loading results:", e);
       setError("Error al cargar los resultados. Por favor, intenta de nuevo.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDeleteResultById = async (id: string) => {
+    await storageService.deleteResultById(id);
+    if (expandedResultId === id) setExpandedResultId(null);
+    refreshResults();
+  };
+
+  const toggleResultDetail = async (r: ExamResult) => {
+    if (expandedResultId === r.id) { setExpandedResultId(null); return; }
+    setExpandedResultId(r.id);
+    const cacheKey = `${r.subjectId}-${r.unitId || ''}`;
+    if (!questionCache[cacheKey]) {
+      const qs = await storageService.getQuestions(r.subjectId, r.unitId);
+      setQuestionCache(prev => ({ ...prev, [cacheKey]: qs }));
     }
   };
 
@@ -1521,7 +1546,7 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
             variant="danger"
             onClick={() => setDeleteModalOpen(true)}
             disabled={filteredResults.length === 0}
-            className="text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+            className="text-xs bg-red-600 text-white border border-red-700 hover:bg-red-700"
           >
             Borrar Historial
           </Button>
@@ -1641,32 +1666,79 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
                     <table className="min-w-full divide-y divide-gray-100" ref={tableRef}>
                       <thead className="bg-gray-50">
                         <tr>
+                          <th className="w-8 px-3 py-3" />
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Alumno</th>
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Hora</th>
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Aciertos</th>
-                          <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">% Correctas</th>
                           <th className="px-5 py-3 text-left text-xs font-bold text-gray-500 uppercase">Nota Final</th>
+                          <th className="px-3 py-3" />
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-100">
-                        {sResults.map(r => (
-                          <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-5 py-3 text-sm font-medium text-gray-800">{r.studentName}</td>
-                            <td className="px-5 py-3 text-sm text-gray-500">
-                              {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td className="px-5 py-3 text-sm text-gray-700">
-                              <span className="font-semibold">{r.score}</span>
-                              <span className="text-gray-400"> / {r.totalQuestions}</span>
-                            </td>
-                            <td className="px-5 py-3 text-sm text-gray-700">{r.percentage.toFixed(0)}%</td>
-                            <td className="px-5 py-3">
-                              <span className={`px-3 py-1 text-xs font-bold rounded-full border ${r.passed ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                                {r.grade.toFixed(1)} — {r.passed ? 'APROBADO' : 'REPROBADO'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {sResults.map(r => {
+                          const isDetailOpen = expandedResultId === r.id;
+                          const cacheKey = `${r.subjectId}-${r.unitId || ''}`;
+                          return (
+                            <React.Fragment key={r.id}>
+                              <tr className="hover:bg-gray-50 transition-colors">
+                                {/* Expand chevron */}
+                                <td className="px-3 py-3">
+                                  <button
+                                    onClick={() => toggleResultDetail(r)}
+                                    title="Ver detalle de respuestas"
+                                    className="text-gray-300 hover:text-emerald-600 transition-colors"
+                                  >
+                                    <svg className={`w-4 h-4 transition-transform ${isDetailOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                  </button>
+                                </td>
+                                <td className="px-5 py-3 text-sm font-medium text-gray-800">
+                                  <div>{r.studentName}</div>
+                                  {r.studentDni && (
+                                    <div className="text-[11px] text-gray-400 font-mono">DNI: {r.studentDni}</div>
+                                  )}
+                                </td>
+                                <td className="px-5 py-3 text-sm text-gray-500">
+                                  {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td className="px-5 py-3 text-sm text-gray-700">
+                                  <span className="font-semibold">{r.score}</span>
+                                  <span className="text-gray-400"> / {r.totalQuestions}</span>
+                                </td>
+                                <td className="px-5 py-3">
+                                  <span className={`px-3 py-1 text-xs font-bold rounded-full border ${r.passed ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                    {r.grade.toFixed(1)} — {r.passed ? 'APROBADO' : 'REPROBADO'}
+                                  </span>
+                                </td>
+                                {/* Per-result delete */}
+                                <td className="px-3 py-3">
+                                  <button
+                                    onClick={() => { if (confirm(`¿Eliminar resultado de ${r.studentName}?`)) handleDeleteResultById(r.id); }}
+                                    title="Eliminar este resultado"
+                                    className="text-gray-300 hover:text-red-500 transition-colors"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </td>
+                              </tr>
+                              {/* Question detail row */}
+                              {isDetailOpen && (
+                                <tr>
+                                  <td colSpan={6} className="px-0 py-0 bg-gray-50 border-b border-gray-100">
+                                    <QuestionDetail
+                                      result={r}
+                                      questions={questionCache[cacheKey] || []}
+                                      isLoading={!questionCache[cacheKey]}
+                                    />
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1676,6 +1748,15 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
           })}
         </div>
       )}
+
+      {/* ── Audit Log Panel ───────────────────────────────────────────── */}
+      <AuditLogPanel
+        logs={auditLogs}
+        onDelete={async () => {
+          await storageService.deleteAuditLogs();
+          refreshResults();
+        }}
+      />
 
       <Modal
         isOpen={deleteModalOpen}
@@ -1687,6 +1768,501 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
         confirmText="Borrar Historial"
         variant="danger"
       />
+    </div>
+  );
+};
+
+// ── AuditLogPanel subcomponent ──────────────────────────────────────────────
+const AuditLogPanel: React.FC<{ logs: AuditEvent[]; onDelete: () => Promise<void> }> = ({ logs, onDelete }) => {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // 1. Group events by device key (deviceId || deviceFingerprint) for CROSS-REFERENCING
+  type DeviceHistory = {
+    key: string;
+    deviceId?: string;
+    fingerprint?: string;
+    deviceInfo?: string;
+    ipAddress?: string;
+    identities: Map<string, {
+      name: string;
+      dni: string;
+      firstSeen: number;
+      lastSeen: number;
+      events: AuditEvent[];
+      exitCount: number;
+    }>;
+  };
+
+  const deviceMap = new Map<string, DeviceHistory>();
+
+  logs.forEach(log => {
+    const devKey = log.deviceId || log.deviceFingerprint;
+    if (!devKey) return;
+
+    if (!deviceMap.has(devKey)) {
+      deviceMap.set(devKey, {
+        key: devKey,
+        deviceId: log.deviceId,
+        fingerprint: log.deviceFingerprint,
+        deviceInfo: log.deviceInfo,
+        ipAddress: log.ipAddress,
+        identities: new Map(),
+      });
+    }
+
+    const dev = deviceMap.get(devKey)!;
+    if (!dev.deviceInfo && log.deviceInfo) dev.deviceInfo = log.deviceInfo;
+    if ((!dev.ipAddress || dev.ipAddress === 'IP no disponible') && log.ipAddress) dev.ipAddress = log.ipAddress;
+
+    const idKey = `${(log.studentDni || '').trim()}||${(log.studentName || '').trim()}`;
+    if (!dev.identities.has(idKey)) {
+      dev.identities.set(idKey, {
+        name: log.studentName,
+        dni: log.studentDni,
+        firstSeen: log.timestamp,
+        lastSeen: log.timestamp,
+        events: [],
+        exitCount: 0,
+      });
+    }
+
+    const idEntry = dev.identities.get(idKey)!;
+    idEntry.events.push(log);
+    idEntry.firstSeen = Math.min(idEntry.firstSeen, log.timestamp);
+    idEntry.lastSeen = Math.max(idEntry.lastSeen, log.timestamp);
+    if (log.eventType === 'focus_loss' || log.eventType === 'visibility_hidden') {
+      idEntry.exitCount++;
+    }
+  });
+
+  // Filter suspicious devices: devices used with >= 2 distinct identities (DNIs or Names)
+  const suspiciousDevices = Array.from(deviceMap.values())
+    .filter(dev => dev.identities.size > 1)
+    .map(dev => {
+      const sortedIdentities = Array.from(dev.identities.values()).sort((a, b) => a.firstSeen - b.firstSeen);
+      return {
+        ...dev,
+        identitiesList: sortedIdentities,
+      };
+    });
+
+  // Map of studentKey -> list of other student identities used on the same device
+  const flaggedStudentKeys = new Map<string, string[]>();
+  suspiciousDevices.forEach(dev => {
+    const allLabels = dev.identitiesList.map(i => `${i.name} (DNI ${i.dni})`);
+    dev.identitiesList.forEach(idEntry => {
+      const idKey = `${idEntry.name}||${idEntry.dni}`;
+      const others = allLabels.filter(label => !label.startsWith(idEntry.name));
+      flaggedStudentKeys.set(idKey, others);
+    });
+  });
+
+  // 2. Group by student (name+dni) for the incident table
+  type StudentGroup = {
+    name: string;
+    dni: string;
+    events: AuditEvent[];
+    exitCount: number;
+    lastDevice?: string;
+    lastIp?: string;
+    otherIdentities?: string[];
+    lastTimestamp: number;
+    subjectName: string;
+  };
+
+  const grouped: Record<string, StudentGroup> = {};
+
+  logs.forEach(log => {
+    const key = `${log.studentName}||${log.studentDni}`;
+    if (!grouped[key]) {
+      grouped[key] = {
+        name: log.studentName,
+        dni: log.studentDni,
+        events: [],
+        exitCount: 0,
+        lastDevice: log.deviceInfo,
+        lastIp: log.ipAddress,
+        otherIdentities: flaggedStudentKeys.get(key),
+        lastTimestamp: log.timestamp,
+        subjectName: log.subjectName,
+      };
+    }
+
+    const group = grouped[key];
+    group.events.push(log);
+    if (log.eventType === 'focus_loss' || log.eventType === 'visibility_hidden') {
+      group.exitCount++;
+    }
+    if (log.deviceInfo) group.lastDevice = log.deviceInfo;
+    if (log.ipAddress && log.ipAddress !== 'IP no disponible') group.lastIp = log.ipAddress;
+    group.lastTimestamp = Math.max(group.lastTimestamp, log.timestamp);
+    if (log.subjectName) group.subjectName = log.subjectName;
+  });
+
+  // Include in table: anyone with exits > 0 OR anyone involved in a multi-identity device
+  const rows: StudentGroup[] = Object.values(grouped)
+    .filter(g => g.exitCount > 0 || (g.otherIdentities && g.otherIdentities.length > 0))
+    .sort((a, b) => {
+      const aSus = (a.otherIdentities && a.otherIdentities.length > 0) ? 1 : 0;
+      const bSus = (b.otherIdentities && b.otherIdentities.length > 0) ? 1 : 0;
+      if (bSus !== aSus) return bSus - aSus;
+      return b.exitCount - a.exitCount;
+    });
+
+  if (rows.length === 0 && suspiciousDevices.length === 0) return null;
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    await onDelete();
+    setIsDeleting(false);
+    setConfirmOpen(false);
+  };
+
+  return (
+    <div className="mt-8">
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-6 rounded-full bg-amber-400" />
+          <h3 className="text-lg font-bold text-gray-800">Registro de Actividad Sospechosa</h3>
+          <span className="text-xs bg-amber-100 text-amber-700 font-bold px-2.5 py-0.5 rounded-full border border-amber-200">
+            Últimas 48 hs
+          </span>
+        </div>
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 hover:border-red-300 transition-colors"
+          title="Eliminar todos los registros de actividad sospechosa"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Borrar Registros
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-500 mb-4">
+        Monitoreo en tiempo real de salidas de pantalla y cruzamiento automático de dispositivos para detectar alumnos que ingresan con identidades falsas.
+      </p>
+
+      {/* ── CRITICAL ALERT: Multi-identity device detected (Cruzamiento de datos) ── */}
+      {suspiciousDevices.length > 0 && (
+        <div className="mb-6 p-5 rounded-2xl bg-gradient-to-br from-red-50 via-amber-50 to-orange-50 border-2 border-red-400 shadow-md">
+          <div className="flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center text-xl flex-shrink-0 shadow-sm animate-pulse">
+              🚨
+            </div>
+            <div className="flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-base font-extrabold text-red-950 flex items-center gap-2">
+                  <span>¡Alerta de Cruzamiento de Identidades!</span>
+                  <span className="text-[11px] bg-red-600 text-white font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                    {suspiciousDevices.length} dispositivo{suspiciousDevices.length > 1 ? 's' : ''} sospechoso{suspiciousDevices.length > 1 ? 's' : ''}
+                  </span>
+                </h4>
+              </div>
+
+              <p className="text-xs text-red-900 mt-1.5 leading-relaxed font-medium">
+                Se detectó que el <strong>mismo dispositivo físico (teléfono o computadora)</strong> fue utilizado para rendir con <strong>más de un DNI o nombre diferente</strong>. Este patrón revela al alumno que ingresó primero con datos falsos para ver o capturar el examen antes de rendir con sus datos reales.
+              </p>
+
+              <div className="mt-4 space-y-3">
+                {suspiciousDevices.map((dev, idx) => (
+                  <div key={idx} className="bg-white/95 backdrop-blur-sm rounded-xl p-4 border border-red-200 shadow-sm">
+                    {/* Device technical header */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2.5 mb-3">
+                      <div className="flex items-center gap-2 text-xs font-bold text-gray-800">
+                        <span className="text-sm">📱</span>
+                        <span>{dev.deviceInfo || 'Dispositivo Móvil / Navegador'}</span>
+                        {dev.ipAddress && dev.ipAddress !== 'IP no disponible' && (
+                          <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-mono text-[11px] border border-gray-200">
+                            IP: {dev.ipAddress}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-mono text-gray-400" title={`ID: ${dev.key}`}>
+                        UUID: {dev.deviceId ? dev.deviceId.slice(0, 16) + '...' : dev.key.slice(0, 12)}
+                      </span>
+                    </div>
+
+                    {/* Timeline of identities on this device */}
+                    <div className="space-y-2">
+                      {dev.identitiesList.map((idEntry, idIdx) => (
+                        <div
+                          key={idIdx}
+                          className={`flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl border transition-all ${
+                            idIdx === 0
+                              ? 'bg-amber-50/70 border-amber-200'
+                              : 'bg-red-50/70 border-red-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${
+                                idIdx === 0
+                                  ? 'bg-amber-200 text-amber-900'
+                                  : 'bg-red-200 text-red-900'
+                              }`}
+                            >
+                              {idIdx + 1}
+                            </span>
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold text-sm text-gray-900">{idEntry.name}</span>
+                                <span className="text-xs font-mono text-gray-600 bg-white px-2 py-0.5 rounded border border-gray-200">
+                                  DNI: {idEntry.dni}
+                                </span>
+                                {idIdx === 0 ? (
+                                  <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full uppercase">
+                                    1° Ingreso (Posible identidad falsa para capturar)
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold bg-red-600 text-white px-2 py-0.5 rounded-full uppercase">
+                                    Reingreso (Posible alumno real)
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                Materia: <span className="font-medium text-gray-700">{idEntry.events[0]?.subjectName || 'Examen'}</span>
+                                {idEntry.exitCount > 0 && (
+                                  <span className="ml-2 font-semibold text-amber-700">
+                                    • {idEntry.exitCount} {idEntry.exitCount === 1 ? 'salida de pantalla' : 'salidas de pantalla'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right text-xs text-gray-500 font-mono">
+                            Hora:{' '}
+                            <strong className="text-gray-800">
+                              {new Date(idEntry.firstSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </strong>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Table of Incidents & Devices ── */}
+      <div className="bg-white rounded-xl border border-amber-200 overflow-hidden shadow-sm">
+        <table className="min-w-full divide-y divide-gray-100">
+          <thead className="bg-amber-50">
+            <tr>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Alumno</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">DNI</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Dispositivo / IP</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Materia</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Salidas</th>
+              <th className="px-5 py-3 text-left text-xs font-bold text-amber-800 uppercase">Última vez</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-100">
+            {rows.map(row => {
+              const count = row.exitCount;
+              const last = row.events[0];
+              const level = count >= 5 ? 'high' : count >= 2 ? 'medium' : count >= 1 ? 'low' : 'none';
+              const isFlagged = row.otherIdentities && row.otherIdentities.length > 0;
+
+              return (
+                <tr
+                  key={`${row.name}-${row.dni}`}
+                  className={`transition-colors ${isFlagged ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-amber-50'}`}
+                >
+                  <td className="px-5 py-3 text-sm">
+                    <div className="font-semibold text-gray-800">{row.name}</div>
+                    {isFlagged && (
+                      <div className="mt-1">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">
+                          🚨 Mismo teléfono que: {row.otherIdentities!.join(', ')}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-500 font-mono">{row.dni}</td>
+                  <td className="px-5 py-3 text-xs text-gray-600">
+                    <div className="font-medium text-gray-800">{row.lastDevice || 'Dispositivo estándar'}</div>
+                    {row.lastIp && row.lastIp !== 'IP no disponible' && (
+                      <div className="font-mono text-[11px] text-gray-400">IP: {row.lastIp}</div>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-600">{row.subjectName}</td>
+                  <td className="px-5 py-3">
+                    {count > 0 ? (
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                        level === 'high'
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : level === 'medium'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-gray-50 text-gray-600 border-gray-200'
+                      }`}>
+                        {level === 'high' && <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
+                        {count} {count === 1 ? 'salida' : 'salidas'}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400 font-medium italic">Sin salidas</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-xs text-gray-400 font-mono">
+                    {new Date(row.lastTimestamp).toLocaleString('es-AR', {
+                      day: '2-digit', month: '2-digit',
+                      hour: '2-digit', minute: '2-digit'
+                    })}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Confirm delete modal */}
+      {confirmOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 border-b border-gray-100 bg-red-50 flex items-center gap-3">
+              <svg className="w-6 h-6 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+              <h3 className="text-base font-bold text-red-800">Borrar Registros de Actividad</h3>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-600 mb-2">
+                ¿Estás seguro de que querés eliminar <strong>todos</strong> los registros de actividad sospechosa?
+              </p>
+              <p className="text-xs text-gray-400 mb-6">Esta acción es irreversible y liberará espacio en el servidor.</p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setConfirmOpen(false)}
+                  disabled={isDeleting}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  disabled={isDeleting}
+                  className="px-4 py-2 text-sm font-bold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors inline-flex items-center gap-2"
+                >
+                  {isDeleting ? (
+                    <>
+                      <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
+                      Borrando...
+                    </>
+                  ) : 'Borrar Todo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── QuestionDetail subcomponent ─────────────────────────────────────────────
+const QuestionDetail: React.FC<{
+  result: ExamResult;
+  questions: Question[];
+  isLoading: boolean;
+}> = ({ result, questions, isLoading }) => {
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-6 py-4 text-sm text-gray-400">
+        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+        Cargando preguntas…
+      </div>
+    );
+  }
+
+  if (!result.answersJson) {
+    return (
+      <p className="px-6 py-4 text-sm text-gray-400 italic">
+        No hay registro detallado para este examen (rendido antes de esta actualización).
+      </p>
+    );
+  }
+
+  let answers: Record<string, number | number[]> = {};
+  try { answers = JSON.parse(result.answersJson); } catch { return null; }
+
+  // Only show questions that were actually shown to this student
+  const shownQs = questions.filter(q => answers[q.id] !== undefined);
+  if (shownQs.length === 0) {
+    return <p className="px-6 py-4 text-sm text-gray-400 italic">Sin preguntas registradas.</p>;
+  }
+
+  return (
+    <div className="px-6 py-4 space-y-2">
+      <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
+        Detalle de respuestas — {shownQs.length} preguntas
+      </p>
+      {shownQs.map((q, idx) => {
+        const userAns = answers[q.id];
+        let isCorrect = false;
+        if (Array.isArray(q.correctOptionIndex)) {
+          isCorrect =
+            Array.isArray(userAns) &&
+            (userAns as number[]).length === q.correctOptionIndex.length &&
+            q.correctOptionIndex.every(i => (userAns as number[]).includes(i));
+        } else {
+          isCorrect = userAns === q.correctOptionIndex;
+        }
+
+        const userAnsText = Array.isArray(userAns)
+          ? (userAns as number[]).map(i => q.options[i] ?? '?').join(', ')
+          : q.options[userAns as number] ?? 'Sin respuesta';
+
+        const correctAnsText = Array.isArray(q.correctOptionIndex)
+          ? q.correctOptionIndex.map(i => q.options[i]).join(', ')
+          : q.options[q.correctOptionIndex as number];
+
+        return (
+          <div
+            key={q.id}
+            className={`p-3 rounded-lg border text-sm flex items-start gap-3 ${
+              isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+            }`}
+          >
+            {/* ✓ / ✗ badge */}
+            <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${
+              isCorrect ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`}>
+              {isCorrect ? '✓' : '✗'}
+            </span>
+
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 leading-snug">
+                {idx + 1}. {q.text}
+              </p>
+              {isCorrect ? (
+                <p className="text-green-700 text-xs mt-1">
+                  <span className="font-semibold">Respondió correctamente:</span> {userAnsText}
+                </p>
+              ) : (
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-red-700 text-xs">
+                    <span className="font-semibold">Respondió:</span> {userAnsText}
+                  </p>
+                  <p className="text-emerald-700 text-xs">
+                    <span className="font-semibold">Correcta:</span> {correctAnsText}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };

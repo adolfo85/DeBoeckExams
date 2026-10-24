@@ -57,17 +57,38 @@ export interface ExamResult {
   studentName: string;
   subjectId: string;
   subjectName: string;
-  score: number; // Number of correct answers
+  score: number;
   totalQuestions: number;
   percentage: number;
-  grade: number; // Calculated grade
+  grade: number;
   passed: boolean;
   timestamp: number;
   unitId?: string;
   unitName?: string;
   type?: 'unit' | 'integrative';
+  /** JSON-serialized Record<questionId, number | number[]> — stored when exam is submitted via ExamView */
+  answersJson?: string;
+  studentDni?: string;
+  deviceId?: string;
+  deviceFingerprint?: string;
+  deviceInfo?: string;
+  ipAddress?: string;
 }
 
 export interface AdminState {
   isAuthenticated: boolean;
+}
+
+/** Registered each time an exam session starts, loses focus, or finishes */
+export interface AuditEvent {
+  id: string;
+  studentName: string;
+  studentDni: string;
+  subjectName: string;
+  eventType: 'focus_loss' | 'visibility_hidden' | 'exam_start' | 'exam_finish';
+  timestamp: number; // Unix ms
+  deviceId?: string;
+  deviceFingerprint?: string;
+  deviceInfo?: string;
+  ipAddress?: string;
 }

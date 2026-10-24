@@ -1,4 +1,4 @@
-import { Subject, Question, ExamConfig, ExamResult, Teacher, Unit } from '../types';
+import { Subject, Question, ExamConfig, ExamResult, Teacher, Unit, AuditEvent } from '../types';
 import { sql } from './db';
 
 const STORAGE_KEYS = {
@@ -33,6 +33,7 @@ export const storageService = {
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS unit_id UUID`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS unit_name TEXT`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS type TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS answers_json TEXT`;
 
       // Timer fields for exam configs
       await sql`ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 0`;
@@ -45,6 +46,31 @@ export const storageService = {
           name TEXT NOT NULL
         )
       `;
+
+      // Audit log table (anti-leak incident tracking)
+      await sql`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id UUID PRIMARY KEY,
+          student_name TEXT NOT NULL,
+          student_dni TEXT NOT NULL,
+          subject_name TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          timestamp BIGINT NOT NULL
+        )
+      `;
+
+      // Device tracking columns for audit_logs
+      await sql`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS device_id TEXT`;
+      await sql`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS device_fingerprint TEXT`;
+      await sql`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS device_info TEXT`;
+      await sql`ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address TEXT`;
+
+      // Device tracking & DNI columns for results
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS student_dni TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS device_id TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS device_fingerprint TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS device_info TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS ip_address TEXT`;
 
       // Backfill IDs for exam_configs if they are null
       try {
@@ -408,8 +434,14 @@ export const storageService = {
   // Results
   saveResult: async (result: ExamResult): Promise<void> => {
     await sql`
-      INSERT INTO results (id, subject_id, subject_name, student_name, score, total_questions, percentage, grade, passed, timestamp, unit_id, unit_name, type)
-      VALUES (${result.id}, ${result.subjectId}, ${result.subjectName}, ${result.studentName}, ${result.score}, ${result.totalQuestions}, ${result.percentage}, ${result.grade}, ${result.passed}, ${result.timestamp}, ${result.unitId || null}, ${result.unitName || null}, ${result.type || 'integrative'})
+      INSERT INTO results (
+        id, subject_id, subject_name, student_name, score, total_questions, percentage, grade, passed, timestamp, unit_id, unit_name, type, answers_json,
+        student_dni, device_id, device_fingerprint, device_info, ip_address
+      )
+      VALUES (
+        ${result.id}, ${result.subjectId}, ${result.subjectName}, ${result.studentName}, ${result.score}, ${result.totalQuestions}, ${result.percentage}, ${result.grade}, ${result.passed}, ${result.timestamp}, ${result.unitId || null}, ${result.unitName || null}, ${result.type || 'integrative'}, ${result.answersJson || null},
+        ${result.studentDni || null}, ${result.deviceId || null}, ${result.deviceFingerprint || null}, ${result.deviceInfo || null}, ${result.ipAddress || null}
+      )
     `;
   },
 
@@ -433,15 +465,21 @@ export const storageService = {
         subjectId: row.subject_id,
         subjectName: row.subject_name,
         studentName: row.student_name,
+        studentDni: row.student_dni || undefined,
         score: Number(row.score),
         totalQuestions: Number(row.total_questions),
         percentage: Number(row.percentage),
         grade: Number(row.grade),
         passed: row.passed,
-        timestamp: Number(row.timestamp), // Ensure number
+        timestamp: Number(row.timestamp),
         unitId: row.unit_id,
         unitName: row.unit_name,
-        type: row.type as 'unit' | 'integrative'
+        type: row.type as 'unit' | 'integrative',
+        answersJson: row.answers_json || undefined,
+        deviceId: row.device_id || undefined,
+        deviceFingerprint: row.device_fingerprint || undefined,
+        deviceInfo: row.device_info || undefined,
+        ipAddress: row.ip_address || undefined,
       }));
     } catch (e) {
       console.error("Error fetching results:", e);
@@ -457,6 +495,7 @@ export const storageService = {
         subjectId: row.subject_id,
         subjectName: row.subject_name,
         studentName: row.student_name,
+        studentDni: row.student_dni || undefined,
         score: Number(row.score),
         totalQuestions: Number(row.total_questions),
         percentage: Number(row.percentage),
@@ -465,7 +504,11 @@ export const storageService = {
         timestamp: Number(row.timestamp),
         unitId: row.unit_id,
         unitName: row.unit_name,
-        type: row.type as 'unit' | 'integrative'
+        type: row.type as 'unit' | 'integrative',
+        deviceId: row.device_id || undefined,
+        deviceFingerprint: row.device_fingerprint || undefined,
+        deviceInfo: row.device_info || undefined,
+        ipAddress: row.ip_address || undefined,
       }));
     } catch (e) {
       console.error("Error fetching results:", e);
@@ -479,6 +522,10 @@ export const storageService = {
     } else {
       await sql`DELETE FROM results`;
     }
+  },
+
+  deleteResultById: async (id: string): Promise<void> => {
+    await sql`DELETE FROM results WHERE id = ${id}`;
   },
 
   // Exam Session Names
@@ -556,5 +603,79 @@ export const storageService = {
 
     // Return an array of just the IDs for easy checking in StudentView
     return validList.map((item: any) => item.id);
-  }
+  },
+
+  // ── Audit Logs ───────────────────────────────────────────────────────────
+  /**
+   * Records a suspicious focus-loss event from a student's exam session.
+   * The table is created on first use so no manual migration is needed.
+   * Uses fire-and-forget: never throws so it never disrupts the student UI.
+   */
+  logAuditEvent: async (event: Omit<AuditEvent, 'id'>): Promise<void> => {
+    // Table is guaranteed to exist (created in migrateSchema on teacher login).
+    // Silent fail — never interrupts the student exam.
+    try {
+      const id = crypto.randomUUID();
+      await sql`
+        INSERT INTO audit_logs (id, student_name, student_dni, subject_name, event_type, timestamp, device_id, device_fingerprint, device_info, ip_address)
+        VALUES (
+          ${id},
+          ${event.studentName},
+          ${event.studentDni},
+          ${event.subjectName},
+          ${event.eventType},
+          ${event.timestamp},
+          ${event.deviceId || null},
+          ${event.deviceFingerprint || null},
+          ${event.deviceInfo || null},
+          ${event.ipAddress || null}
+        )
+      `;
+    } catch (e) {
+      console.warn('[Audit] Could not log event:', e);
+    }
+  },
+
+  /**
+   * Deletes all audit log records from the database.
+   * Useful for freeing server space once incidents have been reviewed.
+   */
+  deleteAuditLogs: async (): Promise<void> => {
+    try {
+      await sql`DELETE FROM audit_logs`;
+    } catch (e) {
+      console.warn('[Audit] Could not delete logs:', e);
+    }
+  },
+
+  /**
+   * Fetches audit events, optionally filtered to a recent window (hours).
+   * Returns newest first.
+   */
+  getAuditLogs: async (lastHours = 48): Promise<AuditEvent[]> => {
+    try {
+      const since = Date.now() - lastHours * 60 * 60 * 1000;
+      const rows = await sql`
+        SELECT * FROM audit_logs
+        WHERE timestamp > ${since}
+        ORDER BY timestamp DESC
+        LIMIT 500
+      `;
+      return rows.map((r: any) => ({
+        id: r.id,
+        studentName: r.student_name,
+        studentDni: r.student_dni,
+        subjectName: r.subject_name,
+        eventType: r.event_type as AuditEvent['eventType'],
+        timestamp: Number(r.timestamp),
+        deviceId: r.device_id || undefined,
+        deviceFingerprint: r.device_fingerprint || undefined,
+        deviceInfo: r.device_info || undefined,
+        ipAddress: r.ip_address || undefined,
+      }));
+    } catch (e) {
+      console.warn('[Audit] Could not fetch logs:', e);
+      return [];
+    }
+  },
 };

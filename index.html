@@ -41,6 +41,43 @@
         font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       }
     </style>
+    <script>
+      /* Admin panel theme: neutral slate surfaces, dark readable text, green only as accent.
+         Scoped to .admin-theme so student / landing views keep the original look. */
+      (function () {
+        var css = [];
+        function rule(sel, decl) { css.push('.admin-theme ' + sel + '{' + decl + '}'); }
+        function cls(name, state) { return '.' + name.replace(/:/g, '\\:') + (state || ''); }
+        function both(name, decl) {
+          rule(cls(name), decl);
+          rule(cls('hover:' + name, ':hover'), decl);
+        }
+        // Surfaces: soft off-white cards on a cool gray page (white used sparingly)
+        var bg = { 'bg-white': '#f7f9fc', 'bg-gray-50': '#eaeff5', 'bg-gray-100': '#dfe6ee', 'bg-gray-200': '#d0d9e4', 'bg-gray-300': '#bcc8d6' };
+        for (var k in bg) both(k, 'background-color:' + bg[k] + '!important');
+        // Dark text on light surfaces
+        var tx = { 'text-gray-900': '#0f172a', 'text-gray-800': '#1e293b', 'text-gray-700': '#334155', 'text-gray-600': '#475569', 'text-gray-500': '#5b6b80', 'text-gray-400': '#7a8798' };
+        for (var t in tx) both(t, 'color:' + tx[t] + '!important');
+        // Borders
+        ['border-gray-100', 'border-gray-200', 'border-gray-300'].forEach(function (b, i) {
+          both(b, 'border-color:' + ['#d3dbe6', '#c3cedc', '#a9b8ca'][i] + '!important');
+        });
+        // Green as detail: keep tints light and subtle
+        both('bg-emerald-50', 'background-color:#e3f4ec!important');
+        both('bg-emerald-100', 'background-color:#cdeedd!important');
+        // Form controls
+        rule('input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea',
+          'background-color:#ffffff!important;color:#0f172a!important;border-color:#b4c1d1!important');
+        rule('input:focus, select:focus, textarea:focus', 'border-color:#059669!important;box-shadow:0 0 0 2px rgba(5,150,105,.25)!important');
+        rule('thead', 'background-color:#dfe6ee!important');
+        rule('.shadow, .shadow-sm, .shadow-md, .shadow-lg', 'box-shadow:0 2px 10px rgba(15,23,42,.10)!important');
+        // Page background
+        css.push('.admin-theme{background:#cfd8e3;min-height:100vh;color:#1e293b}');
+        var s = document.createElement('style');
+        s.textContent = css.join('\n');
+        document.head.appendChild(s);
+      })();
+    </script>
 
 <link rel="stylesheet" href="/index.css">
 </head>
