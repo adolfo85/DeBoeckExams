@@ -34,7 +34,6 @@ export const Modal: React.FC<ModalProps> = ({
 
         if (isOpen) {
             document.addEventListener('keydown', handleEscape);
-            // Prevent body scroll when modal is open
             document.body.style.overflow = 'hidden';
         }
 
@@ -46,36 +45,42 @@ export const Modal: React.FC<ModalProps> = ({
 
     if (!isOpen) return null;
 
-    const iconColor = variant === 'danger' ? 'text-red-500' : 'text-amber-500';
-    const iconBg = variant === 'danger' ? 'bg-red-100' : 'bg-amber-100';
+    const isDanger = variant === 'danger';
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
             <div
-                className="bg-white rounded-2xl shadow-2xl max-w-md w-full transform transition-all animate-fade-in-up"
+                className="bg-slate-100 rounded-sm border border-slate-400 shadow-2xl max-w-md w-full overflow-hidden transform transition-all animate-fade-in-up"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header with Icon */}
-                <div className="flex flex-col items-center pt-8 pb-4 px-6 border-b border-gray-100">
-                    <div className={`${iconBg} ${iconColor} w-16 h-16 rounded-full flex items-center justify-center mb-4`}>
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                    </div>
-                    <h3 className="text-xl font-bold text-gray-900 text-center">{title}</h3>
+                {/* Classic Windows Title Bar */}
+                <div className={`px-3 py-1.5 flex items-center justify-between text-white text-xs font-semibold tracking-wide select-none ${
+                    isDanger ? 'bg-red-800' : 'bg-slate-800'
+                }`}>
+                    <span className="truncate">{title}</span>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-1.5 py-0.5 hover:bg-white/20 active:bg-white/30 text-white font-mono text-xs rounded-xs"
+                        aria-label="Cerrar"
+                    >
+                        ✕
+                    </button>
                 </div>
 
-                {/* Body */}
-                <div className="p-6 space-y-4">
-                    <p className="text-gray-700 text-center leading-relaxed">{message}</p>
+                {/* Dialog Content */}
+                <div className="p-5 bg-white space-y-4">
+                    <p className="text-slate-800 text-sm leading-relaxed">{message}</p>
 
                     {warningItems.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                            <p className="text-sm font-semibold text-gray-600 mb-2">Esto borrará permanentemente:</p>
+                        <div className="bg-slate-50 rounded-sm p-3 border border-slate-300">
+                            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
+                                Elementos afectados:
+                            </p>
                             <ul className="space-y-1">
                                 {warningItems.map((item, idx) => (
-                                    <li key={idx} className="text-sm text-gray-600 flex items-start gap-2">
-                                        <span className="text-red-500 mt-0.5">•</span>
+                                    <li key={idx} className="text-xs text-slate-600 flex items-start gap-1.5 font-mono">
+                                        <span className="text-red-600 font-bold">•</span>
                                         <span>{item}</span>
                                     </li>
                                 ))}
@@ -84,22 +89,22 @@ export const Modal: React.FC<ModalProps> = ({
                     )}
                 </div>
 
-                {/* Footer */}
-                <div className="flex gap-3 p-6 pt-2">
+                {/* Classic Windows Button Bar (bottom right) */}
+                <div className="flex justify-end gap-2 px-4 py-2.5 bg-slate-100 border-t border-slate-300">
                     <Button
-                        variant="outline"
+                        variant="secondary"
                         onClick={onClose}
-                        className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50"
+                        className="min-w-[80px]"
                     >
                         {cancelText}
                     </Button>
                     <Button
-                        variant={variant === 'danger' ? 'danger' : 'primary'}
+                        variant={isDanger ? 'danger' : 'primary'}
                         onClick={() => {
                             onConfirm();
                             onClose();
                         }}
-                        className="flex-1"
+                        className="min-w-[80px]"
                     >
                         {confirmText}
                     </Button>

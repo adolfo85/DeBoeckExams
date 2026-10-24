@@ -13,13 +13,13 @@ export const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props 
 }) => {
-  const baseStyles = "px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed";
+  const baseStyles = "px-4 py-1.5 rounded-sm font-sans font-semibold text-xs tracking-wide uppercase transition-colors duration-100 border select-none focus:outline-none focus:ring-1 focus:ring-slate-500 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer active:translate-y-px shadow-xs";
   
   const variants = {
-    primary: "bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-500",
-    secondary: "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 focus:ring-emerald-500",
-    danger: "bg-red-500 text-white hover:bg-red-600 focus:ring-red-500",
-    outline: "border-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50 focus:ring-emerald-500"
+    primary: "bg-emerald-700 text-white hover:bg-emerald-800 border-emerald-900 active:bg-emerald-900",
+    secondary: "bg-slate-200 text-slate-800 hover:bg-slate-300 border-slate-400 active:bg-slate-400",
+    danger: "bg-red-700 text-white hover:bg-red-800 border-red-900 active:bg-red-900",
+    outline: "bg-white text-slate-700 hover:bg-slate-100 border-slate-400 active:bg-slate-200"
   };
 
   return (

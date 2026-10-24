@@ -275,8 +275,11 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600"></div>
+      <div className="min-h-screen bg-slate-200 flex items-center justify-center">
+        <div className="bg-slate-100 border border-slate-400 p-6 rounded-sm shadow-md text-center max-w-xs w-full">
+          <p className="text-sm font-semibold text-slate-800">Cargando sistema...</p>
+          <p className="text-xs text-slate-500 font-mono mt-1">Espere un momento por favor</p>
+        </div>
       </div>
     );
   }
@@ -284,14 +287,23 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   // Teacher selection screen
   if (selectTeacherStep === 'selecting') {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border-t-4 border-emerald-500">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-emerald-900 mb-2">DeBoeckExams</h1>
-            <p className="text-gray-500">Selecciona a tu Profesor</p>
+      <div className="min-h-screen bg-slate-200 flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-100 rounded-sm border border-slate-400 shadow-xl overflow-hidden">
+          {/* Title Bar */}
+          <div className="bg-slate-800 text-white px-3 py-1.5 flex items-center justify-between text-xs font-semibold select-none">
+            <span className="truncate">DeBoeckExams — Selección de Docente</span>
+            <span className="text-[10px] text-slate-300 font-mono">[Sistema de Exámenes]</span>
           </div>
 
-          <div className="space-y-3 mb-6">
+          {/* Subheader Banner */}
+          <div className="bg-slate-50 border-b border-slate-300 px-6 py-4">
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">DeBoeckExams</h1>
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-0.5">
+              Seleccione el docente a cargo de la cátedra
+            </p>
+          </div>
+
+          <div className="p-6 bg-white space-y-2">
             {availableTeachers.length > 0 ? (
               availableTeachers.map(teacher => (
                 <button
@@ -309,22 +321,30 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
                     setActiveExams(active);
                     setIsLoading(false);
                   }}
-                  className="w-full text-left p-5 rounded-xl border border-gray-200 bg-white hover:border-emerald-500 hover:shadow-md transition-all group"
+                  className="w-full text-left px-4 py-3 rounded-sm border border-slate-300 bg-slate-50 hover:bg-emerald-50 hover:border-emerald-600 transition-colors font-medium text-slate-800 text-sm flex justify-between items-center group cursor-pointer"
                 >
-                  <span className="font-bold text-lg text-gray-800 group-hover:text-emerald-700">
+                  <span className="font-semibold text-slate-800 group-hover:text-emerald-800">
                     {teacher.name}
+                  </span>
+                  <span className="text-xs font-mono font-semibold text-slate-500 group-hover:text-emerald-700">
+                    [ SELECCIONAR ]
                   </span>
                 </button>
               ))
             ) : (
-              <div className="text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                <p className="text-gray-400">No hay profesores disponibles.</p>
+              <div className="text-center p-6 bg-slate-50 rounded-sm border border-slate-300">
+                <p className="text-xs text-slate-500 font-mono">No hay profesores registrados disponibles.</p>
               </div>
             )}
           </div>
 
-          <div className="text-center">
-            <button onClick={onAdminLoginClick} className="text-xs text-gray-400 hover:text-emerald-600 transition-colors">
+          {/* Status Bar */}
+          <div className="bg-slate-100 border-t border-slate-300 px-4 py-2 text-xs text-slate-600 flex justify-between items-center">
+            <span className="font-mono text-[11px] text-slate-500">Módulo Estudiante</span>
+            <button
+              onClick={onAdminLoginClick}
+              className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 hover:underline cursor-pointer"
+            >
               Acceso Profesores
             </button>
           </div>
@@ -335,48 +355,72 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
 
   if (examStep === 'select') {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border-t-4 border-emerald-500">
-          <div className="text-center mb-10">
-            <h1 className="text-3xl font-bold text-emerald-900 mb-2">DeBoeckExams</h1>
-            <p className="text-gray-500">Sistema de Evaluación Online</p>
+      <div className="min-h-screen bg-slate-200 flex flex-col items-center justify-center p-4">
+        <div className="max-w-lg w-full bg-slate-100 rounded-sm border border-slate-400 shadow-xl overflow-hidden">
+          {/* Title Bar */}
+          <div className="bg-slate-800 text-white px-3 py-1.5 flex items-center justify-between text-xs font-semibold select-none">
+            <span className="truncate">DeBoeckExams — Exámenes Habilitados</span>
+            <span className="text-[10px] text-slate-300 font-mono">[Portal de Evaluación]</span>
           </div>
 
-          <div className="space-y-4 mb-10">
+          {/* Subheader Banner */}
+          <div className="bg-slate-50 border-b border-slate-300 px-6 py-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h1 className="text-xl font-bold text-slate-900 tracking-tight">DeBoeckExams</h1>
+                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-0.5">
+                  Evaluaciones Disponibles en Línea
+                </p>
+              </div>
+              {selectedTeacher && (
+                <div className="text-right">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide block">Profesor</span>
+                  <span className="text-xs font-semibold text-slate-800 font-mono">{selectedTeacher.name}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="p-6 bg-white space-y-3">
             {activeExams.length > 0 ? (
               activeExams.map((exam, idx) => (
                 <button
                   key={`${exam.subjectId}-${exam.unitId || 'int'}-${idx}`}
                   onClick={() => handleStartExam(exam)}
-                  className="w-full text-left p-5 rounded-xl border transition-all group relative overflow-hidden bg-white border-gray-200 hover:border-emerald-500 hover:shadow-md"
+                  className="w-full text-left p-4 rounded-sm border border-slate-300 bg-slate-50 hover:bg-emerald-50/50 hover:border-emerald-600 transition-colors group cursor-pointer block"
                 >
                   <div className="flex justify-between items-start">
                     <div>
-                      <span className="font-bold text-lg block mb-1 text-gray-800 group-hover:text-emerald-700">
+                      <span className="font-bold text-base block text-slate-900 group-hover:text-emerald-900">
                         {exam.subjectName}
                       </span>
-                      <span className="text-sm font-medium text-emerald-600">
+                      <span className="text-xs font-medium text-slate-600 mt-0.5 block">
                         {exam.type === 'integrative' ? 'Examen Integrador' : exam.unitName}
                       </span>
                     </div>
-                  </div>
-                  <div className="text-xs flex items-center gap-1.5 mt-3">
-                    <span className="text-gray-400 group-hover:text-emerald-600 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      Habilitado
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-mono font-bold uppercase rounded-xs">
+                      [ Habilitado ]
                     </span>
                   </div>
                 </button>
               ))
             ) : (
-              <div className="text-center p-8 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-                <p className="text-gray-400">No hay exámenes habilitados en este momento.</p>
+              <div className="text-center p-8 bg-slate-50 rounded-sm border border-slate-300">
+                <p className="text-xs text-slate-600 font-mono">No hay exámenes habilitados en este momento.</p>
+                <p className="text-[11px] text-slate-400 mt-1">El docente debe activar el examen desde su panel de control.</p>
               </div>
             )}
           </div>
 
-          <div className="text-center">
-            <button onClick={onAdminLoginClick} className="text-xs text-gray-400 hover:text-emerald-600 transition-colors">Acceso Profesores</button>
+          {/* Status Bar */}
+          <div className="bg-slate-100 border-t border-slate-300 px-4 py-2 text-xs text-slate-600 flex justify-between items-center">
+            <span className="font-mono text-[11px] text-slate-500">Actualización en tiempo real activa</span>
+            <button
+              onClick={onAdminLoginClick}
+              className="text-xs font-semibold text-emerald-800 hover:text-emerald-950 hover:underline cursor-pointer"
+            >
+              Acceso Profesores
+            </button>
           </div>
         </div>
       </div>
@@ -385,24 +429,35 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
 
   if (examStep === 'name_input') {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl p-8 border border-gray-100">
-          <div className="mb-6">
-            <span className="text-emerald-600 font-bold tracking-wide text-xs uppercase">Comenzar Examen</span>
-            <h2 className="text-2xl font-bold text-gray-900 mt-1">{currentExam?.subject.name}</h2>
-            <p className="text-gray-500 text-sm mt-1">
+      <div className="min-h-screen bg-slate-200 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-slate-100 rounded-sm border border-slate-400 shadow-xl overflow-hidden">
+          {/* Title Bar */}
+          <div className="bg-slate-800 text-white px-3 py-1.5 flex items-center justify-between text-xs font-semibold select-none">
+            <span className="truncate">DeBoeckExams — Registro de Estudiante</span>
+            <span className="text-[10px] text-slate-300 font-mono">[Paso 1 de 2]</span>
+          </div>
+
+          {/* Subheader Banner */}
+          <div className="bg-slate-50 border-b border-slate-300 px-6 py-4">
+            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+              Evaluación Seleccionada
+            </span>
+            <h2 className="text-lg font-bold text-slate-900 mt-0.5">{currentExam?.subject.name}</h2>
+            <p className="text-xs text-slate-600 mt-0.5">
               {currentExam?.config.type === 'integrative' ? 'Examen Integrador' :
                 activeExams.find(e => e.unitId === currentExam?.config.unitId)?.unitName || 'Examen de Unidad'}
             </p>
           </div>
 
-          <div className="space-y-4 mb-8">
+          <div className="p-6 bg-white space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre Completo</label>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                Nombre y Apellido del Alumno
+              </label>
               <input
                 id="student-name-input"
                 type="text"
-                className="w-full bg-white border border-gray-300 rounded-lg p-4 text-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none placeholder-gray-400 shadow-sm"
+                className="w-full bg-white border border-slate-400 rounded-sm px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
                 placeholder="Ej: Juan Pérez"
                 value={studentName}
                 onChange={(e) => setStudentName(e.target.value)}
@@ -410,28 +465,39 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">DNI</label>
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                Número de DNI (sin puntos)
+              </label>
               <input
                 id="student-dni-input"
                 type="text"
                 inputMode="numeric"
-                className="w-full bg-white border border-gray-300 rounded-lg p-4 text-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none placeholder-gray-400 shadow-sm"
+                className="w-full bg-white border border-slate-400 rounded-sm px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 font-mono"
                 placeholder="Ej: 35123456"
                 value={studentDni}
                 onChange={(e) => setStudentDni(e.target.value.replace(/\D/g, ''))}
                 maxLength={10}
               />
             </div>
+            <p className="text-[11px] text-slate-500 font-mono leading-tight bg-slate-50 p-2.5 rounded-sm border border-slate-200">
+              Aviso: El dispositivo y los datos ingresados quedarán vinculados a la sesión de evaluación para control de integridad académica.
+            </p>
           </div>
 
-          <div className="flex gap-3">
-            <Button variant="secondary" onClick={() => setExamStep('select')} className="flex-1">Cancelar</Button>
+          {/* Button Bar */}
+          <div className="bg-slate-100 border-t border-slate-300 px-6 py-3 flex justify-between gap-3">
             <Button
+              variant="secondary"
+              onClick={() => setExamStep('select')}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
               onClick={confirmNameAndStart}
               disabled={!studentName.trim() || !studentDni.trim()}
-              className="flex-1 shadow-lg shadow-emerald-200"
             >
-              Comenzar
+              Comenzar Examen
             </Button>
           </div>
         </div>
@@ -631,69 +697,124 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     }) || [];
 
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center py-10 px-4">
-        <div className="max-w-2xl w-full bg-white rounded-3xl shadow-xl p-8 text-center animate-fade-in-up border border-white ring-1 ring-black/5 mb-8">
-          <div className="mb-8">
-            <div className={`w-24 h-24 mx-auto rounded-full flex items-center justify-center mb-6 shadow-sm ${finalResult.passed ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'}`}>
-              {finalResult.passed ? (
-                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-              ) : (
-                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-              )}
-            </div>
-
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">{finalResult.passed ? '¡Aprobado!' : 'No Aprobado'}</h2>
-            <p className="text-gray-500">Examen completado: <span className="font-semibold text-gray-700">{finalResult.subjectName}</span></p>
-            {finalResult.unitName && <p className="text-sm text-emerald-600 font-medium mt-1">{finalResult.unitName}</p>}
-            {finalResult.type === 'integrative' && <p className="text-sm text-emerald-600 font-medium mt-1">Examen Integrador</p>}
+      <div className="min-h-screen bg-slate-200 flex flex-col items-center py-8 px-4 font-sans">
+        <div className="max-w-xl w-full bg-slate-100 rounded-sm border border-slate-400 shadow-xl overflow-hidden mb-6">
+          {/* Title Bar */}
+          <div className="bg-slate-800 text-white px-3 py-1.5 flex items-center justify-between text-xs font-semibold select-none">
+            <span className="truncate">DeBoeckExams — Acta Oficial de Evaluación</span>
+            <span className="text-[10px] text-slate-300 font-mono">[Resultado Final]</span>
           </div>
 
-          <div className="bg-gray-50 rounded-2xl p-6 mb-8 border border-gray-100">
-            <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-4">
-              <span className="text-sm font-medium text-gray-500 uppercase">Nota Final</span>
-              <span className={`text-3xl font-bold ${finalResult.passed ? 'text-green-600' : 'text-red-600'}`}>{finalResult.grade.toFixed(1)}</span>
+          {/* Subheader / Status Banner */}
+          <div className="bg-white border-b border-slate-300 p-6 text-center">
+            <div className="mb-3">
+              <span className={`inline-block px-3 py-1 text-xs font-mono font-bold tracking-wider uppercase border rounded-xs ${
+                finalResult.passed
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-400'
+                  : 'bg-red-50 text-red-800 border-red-400'
+              }`}>
+                {finalResult.passed ? '[ ESTADO: APROBADO ]' : '[ ESTADO: NO APROBADO ]'}
+              </span>
             </div>
 
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-medium text-gray-500 uppercase">Aciertos</span>
-              <div className="text-right">
-                <span className="text-xl font-bold text-gray-800">{finalResult.score}</span>
-                <span className="text-gray-400 text-sm"> / {finalResult.totalQuestions}</span>
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+              {finalResult.subjectName}
+            </h2>
+            <p className="text-xs text-slate-600 mt-1">
+              {finalResult.unitName || (finalResult.type === 'integrative' ? 'Examen Integrador' : 'Evaluación Regular')}
+            </p>
+            <p className="text-xs text-slate-500 font-mono mt-1">
+              Alumno: {finalResult.studentName} {finalResult.studentDni ? `(DNI: ${finalResult.studentDni})` : ''}
+            </p>
+          </div>
+
+          {/* Metrics Panel */}
+          <div className="p-6 bg-slate-50 space-y-3">
+            <div className="bg-white border border-slate-300 rounded-sm p-4 space-y-3">
+              <div className="flex justify-between items-center border-b border-slate-200 pb-2.5">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Calificación Obtenida:
+                </span>
+                <span className={`text-2xl font-mono font-bold ${
+                  finalResult.passed ? 'text-emerald-700' : 'text-red-700'
+                }`}>
+                  {finalResult.grade.toFixed(1)} <span className="text-xs text-slate-500 font-normal">/ 10.0</span>
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center border-b border-slate-200 pb-2.5 text-xs">
+                <span className="text-slate-600 uppercase tracking-wide font-medium">
+                  Respuestas Correctas:
+                </span>
+                <span className="font-mono font-bold text-slate-900">
+                  {finalResult.score} de {finalResult.totalQuestions} preguntas
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-600 uppercase tracking-wide font-medium">
+                  Porcentaje de Efectividad:
+                </span>
+                <span className="font-mono font-bold text-slate-900">
+                  {finalResult.percentage.toFixed(0)}%
+                </span>
               </div>
             </div>
-            <div className="text-right mt-1">
-              <span className="text-xs text-gray-400">({finalResult.percentage.toFixed(0)}% efectividad)</span>
-            </div>
+
+            <p className="text-[11px] text-slate-500 font-mono text-center">
+              Los resultados han sido transmitidos y guardados en la base de datos de la cátedra.
+            </p>
           </div>
 
-          <Button onClick={exitCampus} variant="primary" className="w-full py-3 text-lg bg-emerald-700 hover:bg-emerald-800 shadow-lg">Salir del Campus</Button>
-          <p className="text-xs text-gray-400 mt-4">Serás redirigido fuera de la plataforma.</p>
+          {/* Action Footer */}
+          <div className="bg-slate-100 border-t border-slate-300 p-4 flex flex-col items-center gap-2">
+            <Button
+              onClick={exitCampus}
+              variant="primary"
+              className="w-full justify-center"
+            >
+              Salir del Campus
+            </Button>
+            <span className="text-[11px] text-slate-500 font-mono">
+              Finalizará la sesión y retornará al portal institucional.
+            </span>
+          </div>
         </div>
 
         {/* Detailed Error Review Section */}
         {incorrectQuestions.length > 0 && (
-          <div className="max-w-2xl w-full animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-            <h3 className="text-lg font-bold text-gray-700 mb-4 pl-2 border-l-4 border-red-400">Revisión de Errores ({incorrectQuestions.length})</h3>
-            <div className="space-y-4">
+          <div className="max-w-xl w-full bg-slate-100 rounded-sm border border-slate-400 shadow-xl overflow-hidden mb-8">
+            <div className="bg-slate-800 text-white px-3 py-1.5 flex items-center justify-between text-xs font-semibold select-none">
+              <span>Informe de Errores ({incorrectQuestions.length})</span>
+              <span className="text-[10px] text-slate-300 font-mono">[Revisión Pedagógica]</span>
+            </div>
+
+            <div className="p-4 bg-white space-y-4">
               {incorrectQuestions.map((q, idx) => {
                 const userOptIdx = reviewData?.userAnswers[q.id];
                 return (
-                  <div key={q.id} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                    <p className="font-medium text-gray-800 mb-3">{q.text}</p>
-                    <div className="space-y-2 text-sm">
-                      <div className="p-3 rounded-lg bg-red-50 border border-red-100 flex items-start gap-2 text-red-800">
-                        <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        <div>
-                          <span className="font-bold block text-xs uppercase opacity-75">Tu Respuesta:</span>
-                          {userOptIdx !== undefined ? q.options[userOptIdx] : 'Sin responder'}
-                        </div>
+                  <div key={q.id} className="border border-slate-300 bg-slate-50 p-4 rounded-sm space-y-3">
+                    <div className="flex items-start gap-2">
+                      <span className="px-1.5 py-0.5 bg-slate-200 border border-slate-300 text-slate-700 text-xs font-mono font-bold rounded-xs flex-shrink-0">
+                        #{idx + 1}
+                      </span>
+                      <p className="font-semibold text-slate-900 text-sm leading-snug">
+                        {q.text}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 text-xs font-mono">
+                      <div className="p-2.5 rounded-sm bg-red-50 border border-red-200 text-red-900">
+                        <span className="font-bold text-[10px] uppercase block tracking-wider text-red-700 mb-1">
+                          [ Respuesta Registrada ]:
+                        </span>
+                        <span>{userOptIdx !== undefined ? q.options[userOptIdx] : 'Sin responder'}</span>
                       </div>
-                      <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100 flex items-start gap-2 text-emerald-800">
-                        <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                        <div>
-                          <span className="font-bold block text-xs uppercase opacity-75">Respuesta Correcta:</span>
-                          {q.options[q.correctOptionIndex]}
-                        </div>
+                      <div className="p-2.5 rounded-sm bg-emerald-50 border border-emerald-200 text-emerald-900">
+                        <span className="font-bold text-[10px] uppercase block tracking-wider text-emerald-700 mb-1">
+                          [ Respuesta Correcta ]:
+                        </span>
+                        <span>{q.options[q.correctOptionIndex]}</span>
                       </div>
                     </div>
                   </div>

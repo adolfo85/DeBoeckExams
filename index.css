@@ -1,0 +1,48 @@
+/* DeBoeckExams - Windows Classic Desktop Software Theme Styles */
+@layer base {
+  body {
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #cbd5e1;
+    color: #0f172a;
+  }
+}
+
+/* Classic Desktop Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #e2e8f0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border: 1px solid #cbd5e1;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Classic Windows Dialog & Window borders */
+.win-window {
+  border: 1px solid #64748b;
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.win-titlebar {
+  background: #334155;
+  color: #ffffff;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}

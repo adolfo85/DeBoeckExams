@@ -106,24 +106,24 @@ interface OptionRendererProps {
 
 const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, onAnswer }) => {
   const commonLabelClass = (isSelected: boolean) =>
-    `flex items-center p-4 rounded-xl border cursor-pointer transition-all duration-200 ${
+    `flex items-center p-3 rounded-sm border cursor-pointer transition-colors select-none ${
       isSelected
-        ? 'border-emerald-500 bg-emerald-50 shadow-sm'
-        : 'border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300'
+        ? 'border-emerald-800 bg-emerald-50 text-slate-900 font-semibold ring-1 ring-emerald-800'
+        : 'border-slate-300 bg-white hover:bg-slate-50 text-slate-800'
     }`;
 
   if (q.questionType === 'true_false') {
     return (
-      <div className="flex gap-4">
+      <div className="flex gap-3">
         {q.options.map((opt, optIdx) => {
           const isSelected = answers[q.id] === optIdx;
           return (
             <label
               key={optIdx}
-              className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border cursor-pointer transition-all ${
+              className={`flex-1 flex items-center justify-center p-3 rounded-sm border cursor-pointer font-sans font-medium text-sm transition-colors select-none ${
                 isSelected
-                  ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-medium'
-                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                  ? 'bg-emerald-50 border-emerald-800 text-emerald-950 font-bold ring-1 ring-emerald-800'
+                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
             >
               <input
@@ -144,15 +144,15 @@ const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, o
   if (q.questionType === 'fill_blank') {
     return (
       <div className="space-y-2">
-        <p className="text-xs text-blue-600 mb-2 bg-blue-50 p-2 rounded">
-          Selecciona la opción correcta para el espacio en blanco.
-        </p>
+        <label className="block text-xs font-semibold text-slate-700 mb-1 uppercase tracking-wide">
+          Seleccione la opción para el espacio en blanco:
+        </label>
         <select
           value={answers[q.id] ?? ''}
           onChange={e => onAnswer(q.id, Number(e.target.value))}
-          className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+          className="w-full p-2.5 border border-slate-400 rounded-sm bg-white text-slate-900 text-sm focus:border-emerald-700 outline-none shadow-xs"
         >
-          <option value="" disabled>Selecciona una opción…</option>
+          <option value="" disabled>Seleccione una opción...</option>
           {q.options.map((opt, optIdx) => (
             <option key={optIdx} value={optIdx}>{opt}</option>
           ))}
@@ -163,9 +163,9 @@ const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, o
 
   if (q.questionType === 'multiple_select') {
     return (
-      <div className="space-y-3">
-        <p className="text-xs text-purple-600 mb-2 bg-purple-50 p-2 rounded font-medium">
-          Puedes seleccionar más de una opción correcta.
+      <div className="space-y-2">
+        <p className="text-xs text-slate-600 font-semibold mb-2 uppercase tracking-wide">
+          Selección múltiple (puede seleccionar más de una opción):
         </p>
         {q.options.map((opt, optIdx) => {
           const isSelected =
@@ -173,15 +173,11 @@ const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, o
           return (
             <label key={optIdx} className={commonLabelClass(isSelected)}>
               <div
-                className={`w-5 h-5 rounded border-2 flex items-center justify-center mr-4 flex-shrink-0 ${
-                  isSelected ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300'
+                className={`w-4 h-4 rounded-xs border flex items-center justify-center mr-3 flex-shrink-0 text-xs font-black ${
+                  isSelected ? 'border-emerald-800 bg-emerald-700 text-white' : 'border-slate-400 bg-white'
                 }`}
               >
-                {isSelected && (
-                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                )}
+                {isSelected && 'X'}
               </div>
               <input
                 type="checkbox"
@@ -189,7 +185,7 @@ const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, o
                 checked={isSelected}
                 onChange={() => onAnswer(q.id, optIdx, true)}
               />
-              <span className={`text-base ${isSelected ? 'text-emerald-900 font-medium' : 'text-gray-600'}`}>
+              <span className="text-sm">
                 {opt}
               </span>
             </label>
@@ -201,17 +197,17 @@ const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, o
 
   // Default: multiple_choice (radio)
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {q.options.map((opt, optIdx) => {
         const isSelected = answers[q.id] === optIdx;
         return (
           <label key={optIdx} className={commonLabelClass(isSelected)}>
             <div
-              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mr-4 flex-shrink-0 ${
-                isSelected ? 'border-emerald-500' : 'border-gray-300'
+              className={`w-4 h-4 rounded-full border flex items-center justify-center mr-3 flex-shrink-0 ${
+                isSelected ? 'border-emerald-800 bg-white' : 'border-slate-400 bg-white'
               }`}
             >
-              {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />}
+              {isSelected && <div className="w-2 h-2 rounded-full bg-emerald-800" />}
             </div>
             <input
               type="radio"
@@ -220,7 +216,7 @@ const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, o
               checked={isSelected}
               onChange={() => onAnswer(q.id, optIdx)}
             />
-            <span className={`text-base ${isSelected ? 'text-emerald-900 font-medium' : 'text-gray-600'}`}>
+            <span className="text-sm">
               {opt}
             </span>
           </label>
@@ -237,9 +233,9 @@ const OptionRenderer: React.FC<OptionRendererProps> = ({ question: q, answers, o
 const ProgressBar: React.FC<{ current: number; total: number }> = ({ current, total }) => {
   const pct = total === 0 ? 0 : Math.round(((current + 1) / total) * 100);
   return (
-    <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+    <div className="w-full bg-slate-200 border border-slate-300 rounded-xs h-2 overflow-hidden">
       <div
-        className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+        className="h-full bg-emerald-700 transition-all duration-300"
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -562,27 +558,39 @@ export const ExamView: React.FC<ExamViewProps> = ({
   // Render
   // ─────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-slate-200 flex flex-col font-sans">
       {/* ── Blank-screen overlay: shows instantly on every focus loss ── */}
       {isBlurred && (
         <div
           aria-hidden="true"
           style={{
             position: 'fixed', inset: 0, zIndex: 99999,
-            background: 'white', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: '1rem',
+            background: 'rgba(15, 23, 42, 0.85)', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', padding: '1rem',
           }}
         >
-          <svg style={{ width: 56, height: 56, color: '#f59e0b' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
-              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-          </svg>
-          <p style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1f2937', textAlign: 'center', maxWidth: 320 }}>
-            Examen en pausa
-          </p>
-          <p style={{ fontSize: '0.875rem', color: '#6b7280', textAlign: 'center', maxWidth: 280 }}>
-            Volvé a esta pantalla para continuar. Cada salida queda registrada.
-          </p>
+          <div style={{
+            background: '#ffffff', border: '1px solid #64748b',
+            maxWidth: 380, width: '100%', borderRadius: '2px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)', overflow: 'hidden',
+          }}>
+            <div style={{
+              background: '#334155', color: '#ffffff', padding: '0.5rem 0.85rem',
+              fontWeight: 700, fontSize: '0.75rem', letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+            }}>
+              Control de Integridad — Examen en Pausa
+            </div>
+            <div style={{ padding: '1.5rem', textAlign: 'center' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.5rem' }}>
+                Ventana fuera de foco
+              </h3>
+              <p style={{ fontSize: '0.85rem', color: '#475569', lineHeight: 1.5 }}>
+                Regrese a esta ventana para continuar con la evaluación.<br />
+                Cada salida queda asentada en el registro de auditoría.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -591,40 +599,49 @@ export const ExamView: React.FC<ExamViewProps> = ({
         <div
           style={{
             position: 'fixed', inset: 0, zIndex: 99998,
-            background: 'rgba(0,0,0,0.65)',
+            background: 'rgba(15, 23, 42, 0.75)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: '1.5rem',
           }}
         >
           <div style={{
-            background: 'white', borderRadius: '1.25rem', padding: '2rem',
-            maxWidth: 340, width: '100%', textAlign: 'center',
-            boxShadow: '0 25px 60px rgba(0,0,0,0.35)',
+            background: '#ffffff', borderRadius: '2px',
+            maxWidth: 400, width: '100%',
+            border: '1px solid #94a3b8',
+            boxShadow: '0 12px 30px rgba(0,0,0,0.35)',
+            overflow: 'hidden',
           }}>
-            <div style={{ fontSize: 52, marginBottom: '0.75rem' }}>⚠️</div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1f2937', marginBottom: '0.75rem' }}>
-              Actividad Detectada
-            </h3>
-            <p style={{
-              fontSize: '0.875rem', color: '#4b5563',
-              lineHeight: 1.6, marginBottom: '1.5rem',
+            <div style={{
+              background: '#b91c1c', color: '#ffffff', padding: '0.5rem 1rem',
+              fontWeight: 700, fontSize: '0.75rem', letterSpacing: '0.05em',
+              textTransform: 'uppercase',
             }}>
-              Detectamos actividad fuera de la app.<br />
-              <strong style={{ color: '#dc2626' }}>
-                Al siguiente intento tu examen será bloqueado y enviado automáticamente.
-              </strong>
-            </p>
-            <button
-              onClick={() => setShowWarning(false)}
-              style={{
-                background: '#dc2626', color: 'white', border: 'none',
-                borderRadius: '0.75rem', padding: '0.8rem 0',
-                fontWeight: 700, fontSize: '0.95rem',
-                cursor: 'pointer', width: '100%',
-              }}
-            >
-              Entendido
-            </button>
+              Advertencia del Sistema
+            </div>
+            <div style={{ padding: '1.5rem' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.5rem' }}>
+                Actividad fuera del examen detectada
+              </h3>
+              <p style={{
+                fontSize: '0.85rem', color: '#334155',
+                lineHeight: 1.5, marginBottom: '1.25rem',
+              }}>
+                Se detectaron salidas de la pantalla del examen.<br />
+                <strong>Al siguiente intento, el examen se bloqueará y se enviará automáticamente con las respuestas guardadas hasta este momento.</strong>
+              </p>
+              <button
+                onClick={() => setShowWarning(false)}
+                style={{
+                  background: '#b91c1c', color: '#ffffff', border: '1px solid #7f1d1d',
+                  borderRadius: '2px', padding: '0.55rem 1rem',
+                  fontWeight: 600, fontSize: '0.8rem',
+                  cursor: 'pointer', width: '100%', textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                Entendido
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -633,42 +650,41 @@ export const ExamView: React.FC<ExamViewProps> = ({
       <WatermarkOverlay studentData={studentData} />
 
       {/* ── Sticky header ── */}
-      <header className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-3">
+      <header className="sticky top-0 z-20 bg-slate-100 border-b border-slate-300 shadow-xs">
+        <div className="max-w-3xl mx-auto px-4 py-2.5">
           {/* Subject + student row */}
           <div className="flex items-center justify-between mb-2">
             <div className="min-w-0">
-              <p className="text-xs font-bold text-gray-800 truncate leading-tight">{subjectName}</p>
-              <p className="text-[11px] text-gray-400 truncate leading-tight">{studentData.name}</p>
+              <p className="text-xs font-bold text-slate-900 uppercase tracking-wide truncate">{subjectName}</p>
+              <p className="text-[11px] text-slate-600 font-mono truncate">ALUMNO: {studentData.name} (DNI: {studentData.dni})</p>
             </div>
             {/* Time remaining clock */}
             {remainingSec !== null && (
               <div
                 id="exam-timer"
-                className={`flex items-center gap-1.5 mr-2 rounded-lg px-3 py-1 flex-shrink-0 border font-mono font-bold text-sm ${
+                className={`flex items-center gap-1.5 mr-2 px-3 py-1 flex-shrink-0 border font-mono font-bold text-xs uppercase tracking-wider rounded-sm ${
                   remainingSec <= 60
-                    ? 'bg-red-100 text-red-700 border-red-300 animate-pulse'
+                    ? 'bg-red-50 text-red-700 border-red-300 animate-pulse'
                     : remainingSec <= 300
-                    ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
-                    : 'bg-blue-50 text-blue-800 border-blue-200'
+                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                    : 'bg-white text-slate-800 border-slate-400'
                 }`}
                 title="Tiempo restante"
               >
-                <span>⏱</span>
+                <span className="font-sans text-[10px] font-bold text-slate-500">TIEMPO:</span>
                 <span>
                   {Math.floor(remainingSec / 3600) > 0 ? `${String(Math.floor(remainingSec / 3600)).padStart(2, '0')}:` : ''}
                   {String(Math.floor((remainingSec % 3600) / 60)).padStart(2, '0')}:{String(remainingSec % 60).padStart(2, '0')}
                 </span>
               </div>
             )}
-            {/* Answered pill */}
-            <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1 flex-shrink-0">
-              <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wide">
-                Respondidas
+            {/* Answered counter */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-300 px-3 py-1 flex-shrink-0 rounded-sm">
+              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">
+                Respondidas:
               </span>
-              <span className="text-sm font-bold text-emerald-700">
-                {answeredCount}
-                <span className="text-xs font-normal text-emerald-500">/{totalQuestions}</span>
+              <span className="text-xs font-bold text-slate-900 font-mono">
+                {answeredCount}/{totalQuestions}
               </span>
             </div>
           </div>
@@ -678,20 +694,22 @@ export const ExamView: React.FC<ExamViewProps> = ({
       </header>
 
       {/* ── Question card ── */}
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 pt-6 pb-32">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8">
-          {/* Question number badge */}
-          <div className="flex items-center gap-3 mb-6">
-            <span className="flex-shrink-0 w-8 h-8 flex items-center justify-center bg-emerald-100 rounded-lg font-bold text-emerald-700 text-sm border border-emerald-200">
-              {currentIndex + 1}
+      <main className="flex-1 max-w-3xl w-full mx-auto px-4 pt-6 pb-32">
+        <div className="bg-white rounded-sm shadow-xs border border-slate-300 p-6">
+          {/* Question number bar */}
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-5">
+            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-sm">
+              Pregunta {currentIndex + 1} de {totalQuestions}
             </span>
-            <span className="text-xs text-gray-400 font-medium">
-              de {totalQuestions}
-            </span>
+            {!isCurrentAnswered && (
+              <span className="text-[11px] font-medium text-amber-900 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-sm">
+                Aviso: Pregunta sin responder
+              </span>
+            )}
           </div>
 
           {/* Question text */}
-          <p className="text-lg text-gray-800 font-medium leading-relaxed mb-6">
+          <p className="text-base text-slate-900 font-medium leading-relaxed mb-6 select-none">
             {currentQuestion.text}
           </p>
 
@@ -701,29 +719,19 @@ export const ExamView: React.FC<ExamViewProps> = ({
             answers={answers}
             onAnswer={handleAnswer}
           />
-
-          {/* "No respondida" hint */}
-          {!isCurrentAnswered && (
-            <p className="mt-4 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-              ⚠ Esta pregunta aún no tiene respuesta.
-            </p>
-          )}
         </div>
       </main>
 
       {/* ── Fixed bottom nav bar ── */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)] p-4 z-20">
-        <div className="max-w-2xl mx-auto flex items-center gap-3">
+      <nav className="fixed bottom-0 left-0 right-0 bg-slate-100 border-t border-slate-300 p-3 z-20 shadow-xs">
+        <div className="max-w-3xl mx-auto flex items-center gap-3">
           {/* Prev */}
           <button
             id="exam-prev-btn"
             onClick={goPrev}
             disabled={currentIndex === 0}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            className="px-5 py-2 rounded-sm border border-slate-400 bg-white text-slate-800 font-semibold text-xs uppercase tracking-wider hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs active:translate-y-px"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-            </svg>
             Anterior
           </button>
 
@@ -733,41 +741,23 @@ export const ExamView: React.FC<ExamViewProps> = ({
               id="exam-submit-btn"
               onClick={handleSubmit}
               disabled={isSubmitting}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-lg shadow-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
+              className="flex-1 py-2 rounded-sm bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs uppercase tracking-wider border border-emerald-900 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer active:translate-y-px"
             >
-              {isSubmitting ? (
-                <>
-                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Enviando…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                  </svg>
-                  Finalizar Examen
-                </>
-              )}
+              {isSubmitting ? 'Enviando examen...' : 'Finalizar Examen'}
             </button>
           ) : (
             <button
               id="exam-next-btn"
               onClick={goNext}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-lg shadow-emerald-200 transition-all"
+              className="flex-1 py-2 rounded-sm bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs uppercase tracking-wider border border-emerald-900 shadow-xs transition-colors cursor-pointer active:translate-y-px"
             >
               Siguiente
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-              </svg>
             </button>
           )}
         </div>
 
-        {/* Dot-map navigator */}
-        <div className="max-w-2xl mx-auto flex flex-wrap gap-1.5 mt-3 justify-center">
+        {/* Numbered grid navigator */}
+        <div className="max-w-3xl mx-auto flex flex-wrap gap-1 mt-2.5 justify-center">
           {questions.map((q, idx) => {
             const ans = answers[q.id];
             const isAnswered =
@@ -779,13 +769,13 @@ export const ExamView: React.FC<ExamViewProps> = ({
                 key={q.id}
                 id={`exam-dot-${idx}`}
                 onClick={() => setCurrentIndex(idx)}
-                title={`Pregunta ${idx + 1}${isAnswered ? ' ✓' : ''}`}
-                className={`w-6 h-6 rounded-full text-[10px] font-bold transition-all border ${
+                title={`Pregunta ${idx + 1}${isAnswered ? ' (Respondida)' : ''}`}
+                className={`w-7 h-6 rounded-xs text-[11px] font-mono font-bold transition-colors border cursor-pointer ${
                   idx === currentIndex
-                    ? 'bg-emerald-600 text-white border-emerald-600 scale-110'
+                    ? 'bg-emerald-800 text-white border-emerald-950 font-bold'
                     : isAnswered
-                    ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                    : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
+                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                    : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
                 }`}
               >
                 {idx + 1}
