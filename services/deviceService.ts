@@ -212,11 +212,12 @@ export async function getDeviceProfile(): Promise<DeviceProfile> {
 /**
  * Synchronous profile getter (using whatever IP is currently cached)
  */
-export function getDeviceProfileSync(): Omit<DeviceProfile, 'ip'> & { ip?: string } {
+export function getDeviceProfileSync(): DeviceProfile {
   return {
     deviceId: getDeviceId(),
     fingerprint: getDeviceFingerprint(),
     deviceInfo: getDeviceInfo(),
-    ip: cachedIp || undefined,
+    ip: cachedIp || 'Obteniendo IP...',
   };
 }
+

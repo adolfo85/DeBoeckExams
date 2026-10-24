@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Question, ExamResult } from '../types';
 import { storageService } from '../services/storageService';
-import { getDeviceProfile, DeviceProfile } from '../services/deviceService';
+import { getDeviceProfile, getDeviceProfileSync, DeviceProfile } from '../services/deviceService';
 
 // ─────────────────────────────────────────────
 // Types
@@ -280,26 +280,31 @@ export const ExamView: React.FC<ExamViewProps> = ({
   const [shouldAutoSubmit, setShouldAutoSubmit]   = useState(false);
 
   // ── Device profile tracking ─────────────────────────────────────────────
-  const deviceProfileRef = useRef<DeviceProfile | null>(null);
+  const deviceProfileRef = useRef<DeviceProfile>(getDeviceProfileSync());
 
-  // Log exam session start with device fingerprint on mount
+  // Log exam session start with device fingerprint immediately on mount
   useEffect(() => {
     let isMounted = true;
+    const initialProfile = getDeviceProfileSync();
+    deviceProfileRef.current = initialProfile;
+
+    // Log immediately so even a 1-second entrance is logged
+    storageService.logAuditEvent({
+      studentName: studentData.name,
+      studentDni:  studentData.dni,
+      subjectName,
+      eventType:   'exam_start',
+      timestamp:   Date.now(),
+      deviceId:    initialProfile.deviceId,
+      deviceFingerprint: initialProfile.fingerprint,
+      deviceInfo:  initialProfile.deviceInfo,
+      ipAddress:   initialProfile.ip,
+    });
+
+    // In parallel, resolve full IP and update profile ref
     getDeviceProfile().then(profile => {
       if (!isMounted) return;
       deviceProfileRef.current = profile;
-
-      storageService.logAuditEvent({
-        studentName: studentData.name,
-        studentDni:  studentData.dni,
-        subjectName,
-        eventType:   'exam_start',
-        timestamp:   Date.now(),
-        deviceId:    profile.deviceId,
-        deviceFingerprint: profile.fingerprint,
-        deviceInfo:  profile.deviceInfo,
-        ipAddress:   profile.ip,
-      });
     });
 
     return () => {

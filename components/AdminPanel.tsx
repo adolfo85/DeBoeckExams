@@ -1776,6 +1776,7 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
 const AuditLogPanel: React.FC<{ logs: AuditEvent[]; onDelete: () => Promise<void> }> = ({ logs, onDelete }) => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // 1. Group events by device key (deviceId || deviceFingerprint) for CROSS-REFERENCING
   type DeviceHistory = {
@@ -1946,6 +1947,70 @@ const AuditLogPanel: React.FC<{ logs: AuditEvent[]; onDelete: () => Promise<void
         Monitoreo en tiempo real de salidas de pantalla y cruzamiento automático de dispositivos para detectar alumnos que ingresan con identidades falsas.
       </p>
 
+      {/* ── Status & Help / How to test guide ── */}
+      <div className="mb-5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200 rounded-2xl p-4 text-xs text-blue-900 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-bold text-sm text-blue-950">
+            <span>🛡️ Sistema de Rastreo y Cruzamiento de Dispositivos</span>
+            <span className="bg-emerald-600 text-white font-mono text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-extrabold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              Activo
+            </span>
+          </div>
+          <button
+            onClick={() => setShowHelp(prev => !prev)}
+            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:text-blue-900 bg-white/80 hover:bg-white px-3 py-1 rounded-lg border border-blue-200 transition-colors shadow-2xs cursor-pointer"
+          >
+            <span>{showHelp ? 'Ocultar explicación' : '¿Cómo funciona y cómo probarlo?'}</span>
+            <span>{showHelp ? '▲' : '▼'}</span>
+          </button>
+        </div>
+
+        {showHelp ? (
+          <div className="mt-3.5 pt-3.5 border-t border-blue-200/70 space-y-3 leading-relaxed text-blue-900">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-white/80 p-3 rounded-xl border border-blue-100">
+                <strong className="text-blue-950 block mb-1">🔍 ¿Cómo detecta al tramposo?</strong>
+                <p className="text-gray-600 text-xs leading-normal">
+                  Cada vez que un alumno entra, la app genera un <strong>UUID único de dispositivo</strong> en su navegador y una <strong>huella de hardware</strong> (resolución, GPU, CPU, IP). Si un alumno entra con un nombre inventado (ej. <em>"Juan Pérez - 11111111"</em>) para ver las preguntas, y luego ingresa desde ese mismo celular con sus datos reales (ej. <em>"Martín López - 42555666"</em>), el sistema detecta que el identificador coincide y activa la <strong>Alerta Roja de Cruzamiento</strong> con la cronología de ambos ingresos.
+                </p>
+              </div>
+
+              <div className="bg-white/80 p-3 rounded-xl border border-blue-100">
+                <strong className="text-blue-950 block mb-1">🧪 ¿Cómo comprobar que funciona ahora mismo?</strong>
+                <ol className="list-decimal ml-4 space-y-1 text-gray-700 text-xs">
+                  <li>Desde tu celular (o pestaña de incógnito), abre el link de cualquier examen.</li>
+                  <li>Ingresa como <strong>"Alumno Falso"</strong> con DNI <strong>"999"</strong> y dale Comenzar.</li>
+                  <li>Sal de la pantalla o cierra la pestaña.</li>
+                  <li>Vuelve a entrar desde el mismo celular con <strong>"Alumno Real"</strong> y otro DNI.</li>
+                  <li>Recarga este panel: verás aparecer arriba la <strong>Alerta Roja</strong> vinculando ambos exámenes al mismo teléfono.</li>
+                </ol>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-gray-500 italic bg-white/50 p-2 rounded-lg border border-blue-100">
+              ℹ️ <strong>Nota sobre registros anteriores:</strong> Los registros con la leyenda <em>"Sin datos de dispositivo (anterior a la actualización)"</em> corresponden a exámenes rendidos antes de activar esta función. A partir de hoy, todo nuevo acceso de un alumno registrará su teléfono e IP exactos.
+            </p>
+          </div>
+        ) : (
+          <p className="mt-1.5 text-blue-800 leading-normal">
+            Rastrea de forma invisible el dispositivo de cada estudiante. Si alguien entra con datos falsos y luego con los reales, saltará la alerta de suplantación. Haz clic en <strong>"¿Cómo funciona y cómo probarlo?"</strong> para conocer los detalles.
+          </p>
+        )}
+      </div>
+
+      {/* ── OK Status when no cheating detected ── */}
+      {suspiciousDevices.length === 0 && (
+        <div className="mb-5 flex items-center gap-3 p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs text-emerald-900 font-medium shadow-2xs">
+          <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0 font-bold">
+            ✓
+          </div>
+          <div>
+            <strong className="text-emerald-950">Estado de Cruzamiento:</strong> Sin intentos de suplantación detectados en las últimas 48 hs. Todos los dispositivos registrados corresponden a una sola identidad.
+          </div>
+        </div>
+      )}
+
       {/* ── CRITICAL ALERT: Multi-identity device detected (Cruzamiento de datos) ── */}
       {suspiciousDevices.length > 0 && (
         <div className="mb-6 p-5 rounded-2xl bg-gradient-to-br from-red-50 via-amber-50 to-orange-50 border-2 border-red-400 shadow-md">
@@ -2088,9 +2153,21 @@ const AuditLogPanel: React.FC<{ logs: AuditEvent[]; onDelete: () => Promise<void
                   </td>
                   <td className="px-5 py-3 text-sm text-gray-500 font-mono">{row.dni}</td>
                   <td className="px-5 py-3 text-xs text-gray-600">
-                    <div className="font-medium text-gray-800">{row.lastDevice || 'Dispositivo estándar'}</div>
-                    {row.lastIp && row.lastIp !== 'IP no disponible' && (
-                      <div className="font-mono text-[11px] text-gray-400">IP: {row.lastIp}</div>
+                    {row.lastDevice ? (
+                      <>
+                        <div className="font-semibold text-gray-800 flex items-center gap-1.5">
+                          <span>📱</span>
+                          <span>{row.lastDevice}</span>
+                        </div>
+                        {row.lastIp && row.lastIp !== 'IP no disponible' && (
+                          <div className="font-mono text-[11px] text-gray-400 mt-0.5">IP: {row.lastIp}</div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-gray-400 italic text-xs leading-tight">
+                        Sin datos de dispositivo<br />
+                        <span className="text-[10px] text-gray-400 font-normal">(Registro anterior a la actualización)</span>
+                      </div>
                     )}
                   </td>
                   <td className="px-5 py-3 text-sm text-gray-600">{row.subjectName}</td>
