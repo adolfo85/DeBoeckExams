@@ -1,4 +1,4 @@
-import { StudentAcademicStatus } from '../types';
+import { GradebookEntry, StudentAcademicStatus } from '../types';
 
 /**
  * Parses a combined student name string into last name and first name.
@@ -70,7 +70,6 @@ export function calculateAcademicStatus(params: {
   const { c1Exam, c1Recup, c2Exam, c2Recup, statusOverride, isOverride } = params;
 
   // 1. Calculate 1C Final:
-  // If recuperatorio was taken, it replaces the partial exam grade as the cuatrimestre final
   let c1Final: number | null = null;
   const hasC1Recup = c1Recup !== undefined && c1Recup !== null && !isNaN(c1Recup);
   const hasC1Exam = c1Exam !== undefined && c1Exam !== null && !isNaN(c1Exam);
@@ -159,4 +158,136 @@ export function calculateAcademicStatus(params: {
 
   // Fallback / default
   return { c1Final, c2Final, finalGrade, status: 'regular' };
+}
+
+export interface DuplicateSuggestion {
+  entryA: GradebookEntry;
+  entryB: GradebookEntry;
+  reason: 'mismo_dni' | 'mismas_palabras' | 'apellido_coincidente';
+  confidence: 'alta' | 'media';
+  description: string;
+}
+
+/**
+ * Checks if two names are likely the same person based on:
+ * 1. Normalized exact match
+ * 2. Word-set permutation (e.g. "Soria Brisa Yanina" vs "Yanina Soria Brisa")
+ * 3. Subset overlap with at least 2 common words (e.g. "Valor Mauro" in "Valor Mauro Ezequiel")
+ */
+export function areNamesFuzzyMatch(
+  lastA: string,
+  firstA: string,
+  lastB: string,
+  firstB: string
+): boolean {
+  const normA = (lastA + ' ' + firstA).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const normB = (lastB + ' ' + firstB).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (normA === normB) return true;
+
+  const wordsA = normA.split(/[^a-z0-9]+/).filter(w => w.length > 2);
+  const wordsB = normB.split(/[^a-z0-9]+/).filter(w => w.length > 2);
+  if (wordsA.length < 2 || wordsB.length < 2) return false;
+
+  const setA = new Set(wordsA);
+  const setB = new Set(wordsB);
+
+  // Exact set match: "Soria Brisa Yanina" vs "Yanina Soria Brisa"
+  if (setA.size === setB.size && [...setA].every(w => setB.has(w))) {
+    return true;
+  }
+
+  // Subset match with at least 2 common words: "Valor Mauro" in "Valor Mauro Ezequiel"
+  const common = [...setA].filter(w => setB.has(w));
+  if (common.length >= 2 && (common.length === setA.size || common.length === setB.size)) {
+    return true;
+  }
+
+  // Same last name and first name prefix/token match
+  const lA = lastA.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const lB = lastB.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (lA && lB && lA === lB && common.length >= 2) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Scans an array of GradebookEntry objects and finds suggested duplicate pairs
+ */
+export function findSuggestedDuplicates(entries: GradebookEntry[]): DuplicateSuggestion[] {
+  const suggestions: DuplicateSuggestion[] = [];
+  const seenPairs = new Set<string>();
+
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const a = entries[i];
+      const b = entries[j];
+      const pairKey = [a.id, b.id].sort().join(':');
+      if (seenPairs.has(pairKey)) continue;
+
+      // 1. Same DNI (if both have DNI)
+      const dniA = (a.studentDni || '').trim();
+      const dniB = (b.studentDni || '').trim();
+      if (dniA && dniB && dniA === dniB) {
+        suggestions.push({
+          entryA: a,
+          entryB: b,
+          reason: 'mismo_dni',
+          confidence: 'alta',
+          description: `Mismo DNI (${dniA}) registrado en ambas filas`
+        });
+        seenPairs.add(pairKey);
+        continue;
+      }
+
+      // 2. Name fuzzy matching
+      const wordsA = (a.studentLastName + ' ' + a.studentFirstName)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(/[^a-z0-9]+/)
+        .filter(w => w.length > 2);
+      const wordsB = (b.studentLastName + ' ' + b.studentFirstName)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(/[^a-z0-9]+/)
+        .filter(w => w.length > 2);
+
+      const setA = new Set(wordsA);
+      const setB = new Set(wordsB);
+
+      if (setA.size >= 2 && setB.size >= 2) {
+        // Exact words inverted: "SORIA, Brisa Yanina" vs "YANINA, Soria Brisa"
+        if (setA.size === setB.size && [...setA].every(w => setB.has(w))) {
+          suggestions.push({
+            entryA: a,
+            entryB: b,
+            reason: 'mismas_palabras',
+            confidence: 'alta',
+            description: 'Mismo alumno con Apellido/Nombre ingresado en distinto orden'
+          });
+          seenPairs.add(pairKey);
+          continue;
+        }
+
+        // Subset overlap: "VALOR, Mauro" vs "VALOR, Mauro Ezequiel"
+        const common = [...setA].filter(w => setB.has(w));
+        if (common.length >= 2 && (common.length === setA.size || common.length === setB.size)) {
+          suggestions.push({
+            entryA: a,
+            entryB: b,
+            reason: 'apellido_coincidente',
+            confidence: 'alta',
+            description: 'Mismo apellido y coincidencia de nombre'
+          });
+          seenPairs.add(pairKey);
+          continue;
+        }
+      }
+    }
+  }
+
+  return suggestions;
 }

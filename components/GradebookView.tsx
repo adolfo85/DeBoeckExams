@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Subject, GradebookEntry, StudentAcademicStatus } from '../types';
 import { storageService } from '../services/storageService';
-import { calculateAcademicStatus, formatStudentName } from '../services/gradebookUtils';
+import {
+  calculateAcademicStatus,
+  formatStudentName,
+  findSuggestedDuplicates,
+  DuplicateSuggestion
+} from '../services/gradebookUtils';
 import { Button } from './Button';
 import { Modal } from './Modal';
 
@@ -31,6 +36,11 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
   const [editingEntry, setEditingEntry] = useState<GradebookEntry | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [deleteCandidate, setDeleteCandidate] = useState<GradebookEntry | null>(null);
+
+  // Merge / Duplicate Unification state
+  const [mergeModalTarget, setMergeModalTarget] = useState<GradebookEntry | null>(null);
+  const [isDuplicatesAssistantOpen, setIsDuplicatesAssistantOpen] = useState(false);
+  const [isProcessingMerge, setIsProcessingMerge] = useState(false);
 
   // Notification message
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -98,11 +108,35 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
     return { total, promocionados, regulares, libres, avgGrade };
   }, [entries]);
 
+  // Detected duplicate suggestions
+  const duplicateSuggestions = useMemo(() => {
+    return findSuggestedDuplicates(entries);
+  }, [entries]);
+
+  // Merge duplicates by DNI
+  const handleMergeByDni = async () => {
+    if (!selectedSubjectId) return;
+    try {
+      setIsProcessingMerge(true);
+      const res = await storageService.mergeDuplicatesByDni(selectedSubjectId, academicYear);
+      if (res.mergedCount > 0) {
+        showNotification(`¡Se unificaron ${res.mergedCount} alumno(s) duplicados con el mismo DNI!`);
+        await loadGradebook();
+      } else {
+        showNotification('No se encontraron alumnos con el mismo DNI duplicados.', 'success');
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification('Error al unificar por DNI', 'error');
+    } finally {
+      setIsProcessingMerge(false);
+    }
+  };
+
   // Quick inline status change
   const handleQuickStatusChange = async (entry: GradebookEntry, newStatus: string) => {
     try {
       if (newStatus === 'auto') {
-        // Recalculate automatic status
         const calc = calculateAcademicStatus({
           c1Exam: entry.c1Exam,
           c1Recup: entry.c1Recup,
@@ -182,7 +216,6 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
       e.statusOverride ? 'Manual' : 'Automática'
     ]);
 
-    // UTF-8 BOM (\uFEFF) for Excel compatibility
     const csvContent =
       '\uFEFF' +
       [headers.join(';'), ...rows.map(r => r.join(';'))].join('\r\n');
@@ -310,35 +343,6 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
       printWindow.focus();
       printWindow.print();
     }, 500);
-  };
-
-  const getStatusBadge = (entry: GradebookEntry) => {
-    switch (entry.status) {
-      case 'promocionado':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-200">
-            Promocionado {entry.statusOverride && <span title="Modificado manualmente por docente">✎</span>}
-          </span>
-        );
-      case 'regular':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
-            Regular {entry.statusOverride && <span title="Modificado manualmente por docente">✎</span>}
-          </span>
-        );
-      case 'libre':
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-200">
-            Libre {entry.statusOverride && <span title="Modificado manualmente por docente">✎</span>}
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-700">
-            {entry.status}
-          </span>
-        );
-    }
   };
 
   return (
@@ -474,7 +478,34 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
           </select>
         </div>
 
-        <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
+          {/* Asistente de Duplicados */}
+          {duplicateSuggestions.length > 0 && (
+            <button
+              onClick={() => setIsDuplicatesAssistantOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold transition-all shadow-sm animate-pulse"
+              title="Ver alumnos detectados con posibles duplicados en esta materia"
+            >
+              <span>⚡</span>
+              <span>Unificar Duplicados</span>
+              <span className="bg-amber-600 text-white px-1.5 py-0.2 rounded-full text-[10px]">
+                {duplicateSuggestions.length}
+              </span>
+            </button>
+          )}
+
+          {/* Unificar por DNI */}
+          <Button
+            variant="outline"
+            onClick={handleMergeByDni}
+            disabled={isProcessingMerge}
+            className="text-xs border-blue-300 bg-blue-50/50 text-blue-800 hover:bg-blue-100 flex items-center gap-1.5"
+            title="Unificar automáticamente filas con el mismo número de DNI"
+          >
+            <span>🆔</span> Unificar por DNI
+          </Button>
+
           <Button
             variant="outline"
             onClick={handleExportCSV}
@@ -531,7 +562,7 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
                   <th rowSpan={2} className="px-3 py-3 text-center font-bold text-[11px] w-10">
                     #
                   </th>
-                  <th rowSpan={2} className="px-3 py-3 text-left font-bold text-[11px] w-24">
+                  <th rowSpan={2} className="px-3 py-3 text-left font-bold text-[11px] w-28">
                     DNI
                   </th>
                   <th rowSpan={2} className="px-4 py-3 text-left font-bold text-[11px] min-w-[200px]">
@@ -549,7 +580,7 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
                   <th rowSpan={2} className="px-3 py-3 text-center font-bold text-[11px] min-w-[150px]">
                     Condición
                   </th>
-                  <th rowSpan={2} className="px-3 py-3 text-center font-bold text-[11px] w-20">
+                  <th rowSpan={2} className="px-3 py-3 text-center font-bold text-[11px] w-28">
                     Acciones
                   </th>
                 </tr>
@@ -569,7 +600,23 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
                       {index + 1}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-gray-600 whitespace-nowrap">
-                      {entry.studentDni || <span className="text-gray-300">-</span>}
+                      {entry.studentDni ? (
+                        <span className="font-semibold text-slate-700">{entry.studentDni}</span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingEntry(entry);
+                            setIsEditModalOpen(true);
+                          }}
+                          className="text-[11px] text-gray-400 hover:text-emerald-700 hover:underline flex items-center gap-1 group"
+                          title="Hacer clic para cargar el DNI"
+                        >
+                          <span>-</span>
+                          <span className="text-[10px] text-emerald-600 font-sans font-medium opacity-70 group-hover:opacity-100">
+                            + DNI
+                          </span>
+                        </button>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 font-medium text-gray-900">
                       <div className="font-semibold text-slate-800">
@@ -691,22 +738,36 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
 
                     {/* Acciones */}
                     <td className="px-3 py-2.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="flex items-center justify-center gap-1.5">
+                        {/* Unificar con otro alumno */}
+                        <button
+                          onClick={() => setMergeModalTarget(entry)}
+                          className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors rounded"
+                          title="Unificar / Fusionar con otro alumno en una sola fila"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                          </svg>
+                        </button>
+
+                        {/* Editar */}
                         <button
                           onClick={() => {
                             setEditingEntry(entry);
                             setIsEditModalOpen(true);
                           }}
-                          className="p-1 text-gray-400 hover:text-emerald-600 transition-colors rounded"
+                          className="p-1 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors rounded"
                           title="Editar alumno o calificaciones"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                           </svg>
                         </button>
+
+                        {/* Eliminar */}
                         <button
                           onClick={() => setDeleteCandidate(entry)}
-                          className="p-1 text-gray-400 hover:text-red-600 transition-colors rounded"
+                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors rounded"
                           title="Eliminar de la planilla"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -722,6 +783,52 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal: Unificar Alumno Manualmente */}
+      {mergeModalTarget && (
+        <ManualMergeModal
+          targetEntry={mergeModalTarget}
+          allEntries={entries}
+          onClose={() => setMergeModalTarget(null)}
+          onMerged={async () => {
+            showNotification('¡Alumnos unificados con éxito en una sola fila!');
+            setMergeModalTarget(null);
+            await loadGradebook();
+          }}
+        />
+      )}
+
+      {/* Modal: Asistente para Detectar y Unificar Duplicados */}
+      {isDuplicatesAssistantOpen && (
+        <DuplicatesAssistantModal
+          suggestions={duplicateSuggestions}
+          onClose={() => setIsDuplicatesAssistantOpen(false)}
+          onMergePair={async (targetId, sourceId) => {
+            await storageService.mergeGradebookEntries(targetId, sourceId);
+            showNotification('Duplicado unificado con éxito.');
+            await loadGradebook();
+          }}
+          onMergeAll={async () => {
+            setIsProcessingMerge(true);
+            try {
+              let count = 0;
+              for (const s of duplicateSuggestions) {
+                try {
+                  await storageService.mergeGradebookEntries(s.entryA.id, s.entryB.id);
+                  count++;
+                } catch (e) {
+                  // Pair might already be affected by earlier merge
+                }
+              }
+              showNotification(`¡Se unificaron ${count} pares de duplicados con éxito!`);
+              setIsDuplicatesAssistantOpen(false);
+              await loadGradebook();
+            } finally {
+              setIsProcessingMerge(false);
+            }
+          }}
+        />
+      )}
 
       {/* Modal: Editar Alumno / Calificaciones */}
       {isEditModalOpen && editingEntry && (
@@ -777,6 +884,525 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
         confirmText="Eliminar de la Planilla"
         variant="danger"
       />
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subcomponent: ManualMergeModal (Unificar Alumno con otro)
+// ─────────────────────────────────────────────────────────────────────────────
+interface ManualMergeModalProps {
+  targetEntry: GradebookEntry;
+  allEntries: GradebookEntry[];
+  onClose: () => void;
+  onMerged: () => Promise<void>;
+}
+
+const ManualMergeModal: React.FC<ManualMergeModalProps> = ({
+  targetEntry,
+  allEntries,
+  onClose,
+  onMerged
+}) => {
+  // Available other entries to merge with
+  const availablePartners = useMemo(() => {
+    return allEntries.filter(e => e.id !== targetEntry.id);
+  }, [allEntries, targetEntry]);
+
+  // Pre-select best match if one exists
+  const initialPartnerId = useMemo(() => {
+    // Check if another student has the same DNI
+    const sameDni = availablePartners.find(
+      e => e.studentDni && targetEntry.studentDni && e.studentDni.trim() === targetEntry.studentDni.trim()
+    );
+    if (sameDni) return sameDni.id;
+
+    // Check fuzzy match
+    const wordsTarget = (targetEntry.studentLastName + ' ' + targetEntry.studentFirstName)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .split(/[^a-z0-9]+/)
+      .filter(w => w.length > 2);
+    const targetSet = new Set(wordsTarget);
+
+    for (const p of availablePartners) {
+      const wordsP = (p.studentLastName + ' ' + p.studentFirstName)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .split(/[^a-z0-9]+/)
+        .filter(w => w.length > 2);
+      const common = wordsP.filter(w => targetSet.has(w));
+      if (common.length >= 2) return p.id;
+    }
+
+    return availablePartners[0]?.id || '';
+  }, [availablePartners, targetEntry]);
+
+  const [selectedPartnerId, setSelectedPartnerId] = useState<string>(initialPartnerId);
+  const [partnerSearch, setPartnerSearch] = useState('');
+
+  const selectedPartner = availablePartners.find(e => e.id === selectedPartnerId);
+
+  // Form states for final combined record
+  const [finalLastName, setFinalLastName] = useState(targetEntry.studentLastName);
+  const [finalFirstName, setFinalFirstName] = useState(targetEntry.studentFirstName);
+  const [finalDni, setFinalDni] = useState(targetEntry.studentDni || selectedPartner?.studentDni || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (selectedPartner) {
+      // Pick DNI if partner has one and target doesn't
+      if (!finalDni && selectedPartner.studentDni) {
+        setFinalDni(selectedPartner.studentDni);
+      }
+    }
+  }, [selectedPartner]);
+
+  // Combined preview grades
+  const preview = useMemo(() => {
+    if (!selectedPartner) return null;
+
+    const pickGrade = (t: number | null | undefined, s: number | null | undefined) => {
+      if (t !== null && t !== undefined && s !== null && s !== undefined) {
+        return Math.max(t, s);
+      }
+      return t !== null && t !== undefined ? t : s !== null && s !== undefined ? s : null;
+    };
+
+    const c1Exam = pickGrade(targetEntry.c1Exam, selectedPartner.c1Exam);
+    const c1Recup = pickGrade(targetEntry.c1Recup, selectedPartner.c1Recup);
+    const c2Exam = pickGrade(targetEntry.c2Exam, selectedPartner.c2Exam);
+    const c2Recup = pickGrade(targetEntry.c2Recup, selectedPartner.c2Recup);
+
+    const calc = calculateAcademicStatus({
+      c1Exam,
+      c1Recup,
+      c2Exam,
+      c2Recup,
+      isOverride: false
+    });
+
+    return { c1Exam, c1Recup, c2Exam, c2Recup, ...calc };
+  }, [targetEntry, selectedPartner]);
+
+  const handleConfirm = async () => {
+    if (!selectedPartner) return;
+    try {
+      setIsSubmitting(true);
+      await storageService.mergeGradebookEntries(targetEntry.id, selectedPartner.id, {
+        studentLastName: finalLastName.trim().toUpperCase(),
+        studentFirstName: finalFirstName.trim(),
+        studentDni: finalDni.trim() || undefined,
+        c1Exam: preview?.c1Exam,
+        c1Recup: preview?.c1Recup,
+        c2Exam: preview?.c2Exam,
+        c2Recup: preview?.c2Recup
+      });
+      await onMerged();
+    } catch (err) {
+      console.error(err);
+      alert('Error al unificar los alumnos. Por favor intente nuevamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const filteredPartners = useMemo(() => {
+    if (!partnerSearch.trim()) return availablePartners;
+    const q = partnerSearch.toLowerCase();
+    return availablePartners.filter(
+      p =>
+        p.studentLastName.toLowerCase().includes(q) ||
+        p.studentFirstName.toLowerCase().includes(q) ||
+        (p.studentDni && p.studentDni.includes(q))
+    );
+  }, [availablePartners, partnerSearch]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden border border-gray-200 animate-fadeIn max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="bg-blue-50 border-b border-blue-200 px-6 py-4 flex justify-between items-center flex-shrink-0">
+          <div>
+            <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">
+              Herramienta de Fusión
+            </span>
+            <h3 className="text-base font-bold text-gray-800 mt-0.5">
+              Unificar / Fusionar Filas de Alumnos
+            </h3>
+            <p className="text-xs text-gray-500">
+              Combina las notas del 1C y 2C en una sola fila y elimina la fila duplicada.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">
+            &times;
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-5 overflow-y-auto flex-1">
+          {/* Partner Selector */}
+          <div>
+            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
+              1. Seleccionar con qué alumno deseas fusionar a <span className="text-blue-700">{targetEntry.studentLastName}, {targetEntry.studentFirstName}</span>:
+            </label>
+            <div className="flex gap-2 mb-2">
+              <input
+                type="text"
+                placeholder="Filtrar por nombre o DNI..."
+                value={partnerSearch}
+                onChange={e => setPartnerSearch(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <select
+              value={selectedPartnerId}
+              onChange={e => setSelectedPartnerId(e.target.value)}
+              className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs font-medium focus:ring-blue-500 outline-none"
+              size={4}
+            >
+              {filteredPartners.map(p => (
+                <option key={p.id} value={p.id} className="py-1">
+                  {p.studentLastName}, {p.studentFirstName} {p.studentDni ? `(DNI: ${p.studentDni})` : '(Sin DNI)'} — 1C: {p.c1Final ?? '-'} | 2C: {p.c2Final ?? '-'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Side-by-side comparison */}
+          {selectedPartner && (
+            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+              {/* Alumno A */}
+              <div className="space-y-1.5 border-r border-slate-200 pr-3">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Fila A (Actual)
+                </span>
+                <div className="font-bold text-slate-800 text-sm">
+                  {targetEntry.studentLastName}, {targetEntry.studentFirstName}
+                </div>
+                <div className="text-slate-500 font-mono text-[11px]">
+                  DNI: <strong>{targetEntry.studentDni || '(Vacío)'}</strong>
+                </div>
+                <div className="grid grid-cols-2 gap-1 pt-1 text-[11px] font-mono">
+                  <div className="bg-blue-50/70 p-1 rounded">1C Parcial: {targetEntry.c1Exam ?? '-'}</div>
+                  <div className="bg-blue-50/70 p-1 rounded">1C Recup: {targetEntry.c1Recup ?? '-'}</div>
+                  <div className="bg-purple-50/70 p-1 rounded">2C Parcial: {targetEntry.c2Exam ?? '-'}</div>
+                  <div className="bg-purple-50/70 p-1 rounded">2C Recup: {targetEntry.c2Recup ?? '-'}</div>
+                </div>
+              </div>
+
+              {/* Alumno B */}
+              <div className="space-y-1.5 pl-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Fila B (A fusionar y eliminar)
+                </span>
+                <div className="font-bold text-slate-800 text-sm">
+                  {selectedPartner.studentLastName}, {selectedPartner.studentFirstName}
+                </div>
+                <div className="text-slate-500 font-mono text-[11px]">
+                  DNI: <strong>{selectedPartner.studentDni || '(Vacío)'}</strong>
+                </div>
+                <div className="grid grid-cols-2 gap-1 pt-1 text-[11px] font-mono">
+                  <div className="bg-blue-50/70 p-1 rounded">1C Parcial: {selectedPartner.c1Exam ?? '-'}</div>
+                  <div className="bg-blue-50/70 p-1 rounded">1C Recup: {selectedPartner.c1Recup ?? '-'}</div>
+                  <div className="bg-purple-50/70 p-1 rounded">2C Parcial: {selectedPartner.c2Exam ?? '-'}</div>
+                  <div className="bg-purple-50/70 p-1 rounded">2C Recup: {selectedPartner.c2Recup ?? '-'}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Resultado Fusionado Config */}
+          {selectedPartner && preview && (
+            <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-xl space-y-3">
+              <span className="text-xs font-bold text-emerald-900 block uppercase tracking-wider">
+                2. Fila Definitiva Resultante:
+              </span>
+
+              {/* Selector de Nombre a conservar */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-700 uppercase mb-1">
+                  Nombre Definitivo:
+                </label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFinalLastName(targetEntry.studentLastName);
+                      setFinalFirstName(targetEntry.studentFirstName);
+                    }}
+                    className="px-2.5 py-1 text-xs border rounded bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-300"
+                  >
+                    Usar: {targetEntry.studentLastName}, {targetEntry.studentFirstName}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFinalLastName(selectedPartner.studentLastName);
+                      setFinalFirstName(selectedPartner.studentFirstName);
+                    }}
+                    className="px-2.5 py-1 text-xs border rounded bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-300"
+                  >
+                    Usar: {selectedPartner.studentLastName}, {selectedPartner.studentFirstName}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={finalLastName}
+                    onChange={e => setFinalLastName(e.target.value)}
+                    placeholder="Apellido"
+                    className="border border-gray-300 rounded px-2.5 py-1.5 text-xs font-semibold uppercase bg-white"
+                  />
+                  <input
+                    type="text"
+                    value={finalFirstName}
+                    onChange={e => setFinalFirstName(e.target.value)}
+                    placeholder="Nombre"
+                    className="border border-gray-300 rounded px-2.5 py-1.5 text-xs font-semibold bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* DNI Definitivo */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-700 uppercase mb-1">
+                  DNI Definitivo:
+                </label>
+                <input
+                  type="text"
+                  value={finalDni}
+                  onChange={e => setFinalDni(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Ej: 38123456 (puede ingresarse o corregirse aquí)"
+                  className="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs font-mono bg-white"
+                />
+              </div>
+
+              {/* Preview de Calificaciones Combinadas */}
+              <div className="pt-2 border-t border-emerald-200">
+                <span className="text-[11px] font-bold text-gray-600 block mb-1">
+                  Calificaciones combinadas automáticas:
+                </span>
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 text-center font-mono text-[11px]">
+                  <div className="bg-white p-1.5 rounded border border-emerald-100">
+                    <span className="text-[9px] text-gray-400 block uppercase">1C Parcial</span>
+                    <span className="font-bold">{preview.c1Exam ?? '-'}</span>
+                  </div>
+                  <div className="bg-white p-1.5 rounded border border-emerald-100">
+                    <span className="text-[9px] text-gray-400 block uppercase">1C Recup</span>
+                    <span className="font-bold">{preview.c1Recup ?? '-'}</span>
+                  </div>
+                  <div className="bg-blue-100/60 p-1.5 rounded border border-blue-200 font-bold text-blue-900">
+                    <span className="text-[9px] text-blue-700 block uppercase">Final 1C</span>
+                    <span>{preview.c1Final ?? '-'}</span>
+                  </div>
+                  <div className="bg-white p-1.5 rounded border border-emerald-100">
+                    <span className="text-[9px] text-gray-400 block uppercase">2C Parcial</span>
+                    <span className="font-bold">{preview.c2Exam ?? '-'}</span>
+                  </div>
+                  <div className="bg-white p-1.5 rounded border border-emerald-100">
+                    <span className="text-[9px] text-gray-400 block uppercase">2C Recup</span>
+                    <span className="font-bold">{preview.c2Recup ?? '-'}</span>
+                  </div>
+                  <div className="bg-purple-100/60 p-1.5 rounded border border-purple-200 font-bold text-purple-900">
+                    <span className="text-[9px] text-purple-700 block uppercase">Final 2C</span>
+                    <span>{preview.c2Final ?? '-'}</span>
+                  </div>
+                  <div className="bg-emerald-100 p-1.5 rounded border border-emerald-300 font-bold text-emerald-900">
+                    <span className="text-[9px] text-emerald-700 block uppercase">Promedio</span>
+                    <span>{preview.finalGrade ?? '-'}</span>
+                  </div>
+                </div>
+                <div className="mt-2 text-right">
+                  <span className="text-xs font-bold text-gray-600 mr-2">Condición calculada:</span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      preview.status === 'promocionado'
+                        ? 'bg-green-100 text-green-800'
+                        : preview.status === 'regular'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    {preview.status ? preview.status.toUpperCase() : 'REGULAR'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex justify-end gap-2 flex-shrink-0">
+          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Cancelar
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleConfirm}
+            disabled={isSubmitting || !selectedPartner}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            {isSubmitting ? 'Fusionando...' : 'Confirmar Fusión'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subcomponent: DuplicatesAssistantModal (Asistente inteligente de duplicados)
+// ─────────────────────────────────────────────────────────────────────────────
+interface DuplicatesAssistantModalProps {
+  suggestions: DuplicateSuggestion[];
+  onClose: () => void;
+  onMergePair: (targetId: string, sourceId: string) => Promise<void>;
+  onMergeAll: () => Promise<void>;
+}
+
+const DuplicatesAssistantModal: React.FC<DuplicatesAssistantModalProps> = ({
+  suggestions,
+  onClose,
+  onMergePair,
+  onMergeAll
+}) => {
+  const [mergingPairId, setMergingPairId] = useState<string | null>(null);
+  const [isMergingAll, setIsMergingAll] = useState(false);
+
+  const handleMergeOne = async (s: DuplicateSuggestion) => {
+    const key = `${s.entryA.id}-${s.entryB.id}`;
+    setMergingPairId(key);
+    try {
+      await onMergePair(s.entryA.id, s.entryB.id);
+    } finally {
+      setMergingPairId(null);
+    }
+  };
+
+  const handleMergeAll = async () => {
+    if (!confirm(`¿Deseas fusionar automáticamente los ${suggestions.length} pares de duplicados detectados? Se combinarán sus calificaciones y se eliminarán las filas duplicadas.`)) {
+      return;
+    }
+    setIsMergingAll(true);
+    try {
+      await onMergeAll();
+    } finally {
+      setIsMergingAll(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl overflow-hidden border border-gray-200 animate-fadeIn max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-4 flex justify-between items-center flex-shrink-0">
+          <div>
+            <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+              Detección Inteligente
+            </span>
+            <h3 className="text-base font-bold text-gray-800 mt-0.5">
+              Asistente para Unificar Alumnos Duplicados
+            </h3>
+            <p className="text-xs text-gray-600">
+              Se detectaron <strong>{suggestions.length}</strong> posible(s) caso(s) de alumnos con nombres duplicados o ingresados en distinto orden.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">
+            &times;
+          </button>
+        </div>
+
+        {/* Action Header */}
+        {suggestions.length > 0 && (
+          <div className="bg-amber-100/50 px-6 py-2.5 border-b border-amber-200 flex justify-between items-center text-xs text-amber-900">
+            <span>Puedes unificar cada par individualmente o todos a la vez.</span>
+            <Button
+              variant="primary"
+              onClick={handleMergeAll}
+              disabled={isMergingAll}
+              className="text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold"
+            >
+              {isMergingAll ? 'Unificando...' : `⚡ Unificar Todos (${suggestions.length})`}
+            </Button>
+          </div>
+        )}
+
+        {/* Content list */}
+        <div className="p-6 space-y-3 overflow-y-auto flex-1">
+          {suggestions.length === 0 ? (
+            <div className="py-12 text-center text-gray-500 text-xs">
+              ¡Excelente! No se detectaron más duplicados en esta materia.
+            </div>
+          ) : (
+            suggestions.map(s => {
+              const pairKey = `${s.entryA.id}-${s.entryB.id}`;
+              const isMerging = mergingPairId === pairKey;
+
+              return (
+                <div
+                  key={pairKey}
+                  className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 hover:border-amber-300 transition-colors"
+                >
+                  <div className="space-y-1 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-200">
+                        {s.reason === 'mismo_dni'
+                          ? 'Mismo DNI'
+                          : s.reason === 'mismas_palabras'
+                          ? 'Nombres Invertidos'
+                          : 'Nombre Similar'}
+                      </span>
+                      <span className="text-[11px] text-gray-500">{s.description}</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
+                      <div className="p-2 bg-white rounded border border-gray-200">
+                        <div className="font-bold text-slate-800">
+                          {s.entryA.studentLastName}, {s.entryA.studentFirstName}
+                        </div>
+                        <div className="text-[11px] text-gray-400 font-mono">
+                          DNI: {s.entryA.studentDni || '-'} | 1C: {s.entryA.c1Final ?? '-'} | 2C: {s.entryA.c2Final ?? '-'}
+                        </div>
+                      </div>
+
+                      <div className="p-2 bg-white rounded border border-gray-200">
+                        <div className="font-bold text-slate-800">
+                          {s.entryB.studentLastName}, {s.entryB.studentFirstName}
+                        </div>
+                        <div className="text-[11px] text-gray-400 font-mono">
+                          DNI: {s.entryB.studentDni || '-'} | 1C: {s.entryB.c1Final ?? '-'} | 2C: {s.entryB.c2Final ?? '-'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex-shrink-0 self-end sm:self-center">
+                    <Button
+                      variant="primary"
+                      onClick={() => handleMergeOne(s)}
+                      disabled={isMerging}
+                      className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold whitespace-nowrap"
+                    >
+                      {isMerging ? 'Fusionando...' : 'Fusionar en 1 fila'}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex justify-end flex-shrink-0">
+          <Button variant="secondary" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
     </div>
   );
 };

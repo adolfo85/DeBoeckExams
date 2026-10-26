@@ -1,5 +1,5 @@
 import { Subject, Question, ExamConfig, ExamResult, Teacher, Unit, AuditEvent, GradebookEntry, StudentAcademicStatus } from '../types';
-import { calculateAcademicStatus, parseStudentName } from './gradebookUtils';
+import { calculateAcademicStatus, parseStudentName, areNamesFuzzyMatch } from './gradebookUtils';
 import { sql } from './db';
 
 const STORAGE_KEYS = {
@@ -469,11 +469,11 @@ export const storageService = {
     await sql`
       INSERT INTO results (
         id, subject_id, subject_name, student_name, score, total_questions, percentage, grade, passed, timestamp, unit_id, unit_name, type, answers_json,
-        student_dni, device_id, device_fingerprint, device_info, ip_address
+        student_dni, student_last_name, student_first_name, device_id, device_fingerprint, device_info, ip_address
       )
       VALUES (
         ${result.id}, ${result.subjectId}, ${result.subjectName}, ${result.studentName}, ${result.score}, ${result.totalQuestions}, ${result.percentage}, ${result.grade}, ${result.passed}, ${result.timestamp}, ${result.unitId || null}, ${result.unitName || null}, ${result.type || 'integrative'}, ${result.answersJson || null},
-        ${result.studentDni || null}, ${result.deviceId || null}, ${result.deviceFingerprint || null}, ${result.deviceInfo || null}, ${result.ipAddress || null}
+        ${result.studentDni || null}, ${result.studentLastName || null}, ${result.studentFirstName || null}, ${result.deviceId || null}, ${result.deviceFingerprint || null}, ${result.deviceInfo || null}, ${result.ipAddress || null}
       )
     `;
   },
@@ -499,6 +499,8 @@ export const storageService = {
         subjectName: row.subject_name,
         studentName: row.student_name,
         studentDni: row.student_dni || undefined,
+        studentLastName: row.student_last_name || undefined,
+        studentFirstName: row.student_first_name || undefined,
         score: Number(row.score),
         totalQuestions: Number(row.total_questions),
         percentage: Number(row.percentage),
@@ -529,6 +531,8 @@ export const storageService = {
         subjectName: row.subject_name,
         studentName: row.student_name,
         studentDni: row.student_dni || undefined,
+        studentLastName: row.student_last_name || undefined,
+        studentFirstName: row.student_first_name || undefined,
         score: Number(row.score),
         totalQuestions: Number(row.total_questions),
         percentage: Number(row.percentage),
@@ -874,8 +878,9 @@ export const storageService = {
       const firstName = (res.studentFirstName || parsed.firstName).trim();
 
       // Match strategy:
-      // 1. Primary: match by DNI
+      // 1. Primary: match by DNI (if both have DNI)
       // 2. Secondary: match by normalized Apellido y Nombre
+      // 3. Tertiary: match by fuzzy words / inverted names
       let match: GradebookEntry | undefined = undefined;
       if (dni) {
         match = existingEntries.find(e => e.studentDni && e.studentDni.trim() === dni);
@@ -886,6 +891,11 @@ export const storageService = {
           const eKey = `${e.studentLastName} ${e.studentFirstName}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
           return eKey === normKey;
         });
+      }
+      if (!match) {
+        match = existingEntries.find(e =>
+          areNamesFuzzyMatch(e.studentLastName, e.studentFirstName, lastName, firstName)
+        );
       }
 
       const gradeValue = res.grade;
@@ -923,5 +933,144 @@ export const storageService = {
     }
 
     return { inserted, updated };
+  },
+
+  mergeGradebookEntries: async (
+    targetId: string,
+    sourceId: string,
+    overrideData?: {
+      studentLastName?: string;
+      studentFirstName?: string;
+      studentDni?: string;
+      c1Exam?: number | null;
+      c1Recup?: number | null;
+      c2Exam?: number | null;
+      c2Recup?: number | null;
+      statusOverride?: boolean;
+      status?: StudentAcademicStatus;
+      notes?: string;
+    }
+  ): Promise<GradebookEntry | null> => {
+    try {
+      const rows = await sql`SELECT * FROM exam_gradebook WHERE id IN (${targetId}, ${sourceId})`;
+      if (rows.length < 2) return null;
+      const target = rows.find((r: any) => r.id === targetId);
+      const source = rows.find((r: any) => r.id === sourceId);
+      if (!target || !source) return null;
+
+      const pickGrade = (
+        overrideVal: number | null | undefined,
+        targetVal: any,
+        sourceVal: any
+      ) => {
+        if (overrideVal !== undefined) return overrideVal;
+        const t = targetVal !== null && targetVal !== undefined ? Number(targetVal) : null;
+        const s = sourceVal !== null && sourceVal !== undefined ? Number(sourceVal) : null;
+        if (t !== null && s !== null) return Math.max(t, s);
+        return t !== null ? t : s;
+      };
+
+      const finalLastName = (overrideData?.studentLastName || target.student_last_name || source.student_last_name).trim().toUpperCase();
+      const finalFirstName = (overrideData?.studentFirstName || target.student_first_name || source.student_first_name).trim();
+      const finalDni = (overrideData?.studentDni || target.student_dni || source.student_dni || null);
+
+      const c1Exam = pickGrade(overrideData?.c1Exam, target.c1_exam, source.c1_exam);
+      const c1Recup = pickGrade(overrideData?.c1Recup, target.c1_recup, source.c1_recup);
+      const c2Exam = pickGrade(overrideData?.c2Exam, target.c2_exam, source.c2_exam);
+      const c2Recup = pickGrade(overrideData?.c2Recup, target.c2_recup, source.c2_recup);
+
+      const combinedNotes = overrideData?.notes !== undefined
+        ? overrideData.notes
+        : [target.notes, source.notes].filter(Boolean).join('; ');
+
+      const isStatusOverridden = overrideData?.statusOverride ?? Boolean(target.status_override || source.status_override);
+      const overrideStatus = overrideData?.status;
+
+      const calc = calculateAcademicStatus({
+        c1Exam,
+        c1Recup,
+        c2Exam,
+        c2Recup,
+        statusOverride: overrideStatus,
+        isOverride: isStatusOverridden
+      });
+
+      const now = Date.now();
+
+      await sql`
+        UPDATE exam_gradebook SET
+          student_last_name = ${finalLastName},
+          student_first_name = ${finalFirstName},
+          student_dni = ${finalDni},
+          c1_exam = ${c1Exam},
+          c1_recup = ${c1Recup},
+          c1_final = ${calc.c1Final},
+          c2_exam = ${c2Exam},
+          c2_recup = ${c2Recup},
+          c2_final = ${calc.c2Final},
+          final_grade = ${calc.finalGrade},
+          status = ${calc.status},
+          status_override = ${isStatusOverridden},
+          notes = ${combinedNotes || null},
+          updated_at = ${now}
+        WHERE id = ${targetId}
+      `;
+
+      await sql`DELETE FROM exam_gradebook WHERE id = ${sourceId}`;
+
+      return {
+        id: targetId,
+        subjectId: target.subject_id,
+        studentDni: finalDni || undefined,
+        studentLastName: finalLastName,
+        studentFirstName: finalFirstName,
+        c1Exam,
+        c1Recup,
+        c1Final: calc.c1Final,
+        c2Exam,
+        c2Recup,
+        c2Final: calc.c2Final,
+        finalGrade: calc.finalGrade,
+        status: calc.status,
+        statusOverride: isStatusOverridden,
+        academicYear: Number(target.academic_year || 2026),
+        notes: combinedNotes || undefined,
+        createdAt: Number(target.created_at),
+        updatedAt: now
+      };
+    } catch (e) {
+      console.error("Error merging gradebook entries:", e);
+      throw e;
+    }
+  },
+
+  mergeDuplicatesByDni: async (subjectId: string, academicYear?: number): Promise<{ mergedCount: number }> => {
+    try {
+      const year = academicYear || new Date().getFullYear();
+      const entries = await storageService.getGradebookEntries(subjectId, year);
+      const groups = new Map<string, GradebookEntry[]>();
+      for (const e of entries) {
+        const dni = (e.studentDni || '').trim();
+        if (dni) {
+          if (!groups.has(dni)) groups.set(dni, []);
+          groups.get(dni)!.push(e);
+        }
+      }
+
+      let mergedCount = 0;
+      for (const [, group] of groups.entries()) {
+        if (group.length > 1) {
+          const target = group[0];
+          for (let i = 1; i < group.length; i++) {
+            await storageService.mergeGradebookEntries(target.id, group[i].id);
+            mergedCount++;
+          }
+        }
+      }
+      return { mergedCount };
+    } catch (e) {
+      console.error("Error merging duplicates by DNI:", e);
+      return { mergedCount: 0 };
+    }
   }
 };
