@@ -31,6 +31,56 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | StudentAcademicStatus>('all');
 
+  // Highlight / Marcar filas para comprobación visual con planillas accesorias
+  const [markedIds, setMarkedIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(`gradebook_marked_${selectedSubjectId || 'default'}_${academicYear}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [markedOnly, setMarkedOnly] = useState<boolean>(false);
+
+  // Sync markedIds when subject or academicYear changes
+  useEffect(() => {
+    if (!selectedSubjectId) return;
+    try {
+      const saved = localStorage.getItem(`gradebook_marked_${selectedSubjectId}_${academicYear}`);
+      setMarkedIds(saved ? new Set(JSON.parse(saved)) : new Set());
+      setMarkedOnly(false);
+    } catch {
+      setMarkedIds(new Set());
+    }
+  }, [selectedSubjectId, academicYear]);
+
+  const toggleMark = (id: string) => {
+    setMarkedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      try {
+        localStorage.setItem(`gradebook_marked_${selectedSubjectId}_${academicYear}`, JSON.stringify(Array.from(next)));
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
+
+  const clearAllMarks = () => {
+    setMarkedIds(new Set());
+    setMarkedOnly(false);
+    try {
+      localStorage.removeItem(`gradebook_marked_${selectedSubjectId}_${academicYear}`);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Modals state
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<GradebookEntry | null>(null);
@@ -88,9 +138,10 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
         (e.studentDni || '').includes(searchTerm.trim());
 
       const matchStatus = statusFilter === 'all' || e.status === statusFilter;
-      return matchSearch && matchStatus;
+      const matchMarked = !markedOnly || markedIds.has(e.id);
+      return matchSearch && matchStatus && matchMarked;
     });
-  }, [entries, searchTerm, statusFilter]);
+  }, [entries, searchTerm, statusFilter, markedOnly, markedIds]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -476,6 +527,33 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
             <option value="regular">Solo Regulares</option>
             <option value="libre">Solo Libres</option>
           </select>
+
+          {/* Marcador visual toolbar */}
+          {markedIds.size > 0 && (
+            <div className="flex items-center gap-1.5 bg-amber-100/90 text-amber-950 px-2.5 py-1.5 rounded-lg border border-amber-300 text-xs shadow-xs">
+              <span className="font-bold">📍 {markedIds.size} marcado{markedIds.size > 1 ? 's' : ''}</span>
+              <button
+                type="button"
+                onClick={() => setMarkedOnly(!markedOnly)}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors cursor-pointer ${
+                  markedOnly
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-white hover:bg-amber-200 text-amber-900 border border-amber-300'
+                }`}
+                title={markedOnly ? 'Mostrar todos los alumnos' : 'Filtrar y ver solo los alumnos marcados'}
+              >
+                {markedOnly ? 'Ver todos' : 'Solo marcados'}
+              </button>
+              <button
+                type="button"
+                onClick={clearAllMarks}
+                className="text-amber-800 hover:text-red-700 font-semibold text-[11px] underline ml-1 cursor-pointer"
+                title="Desmarcar todas las filas de esta planilla"
+              >
+                Desmarcar todos
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -562,6 +640,21 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
                   <th rowSpan={2} className="px-3 py-3 text-center font-bold text-[11px] w-10">
                     #
                   </th>
+                  <th rowSpan={2} className="px-2 py-3 text-center font-bold text-[11px] w-24">
+                    <div className="flex items-center justify-center gap-1">
+                      <span>Marcar</span>
+                      {markedIds.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={clearAllMarks}
+                          className="text-[10px] text-amber-700 hover:text-red-600 font-normal hover:underline"
+                          title="Desmarcar todos los alumnos"
+                        >
+                          (limpiar)
+                        </button>
+                      )}
+                    </div>
+                  </th>
                   <th rowSpan={2} className="px-3 py-3 text-left font-bold text-[11px] w-28">
                     DNI
                   </th>
@@ -594,117 +687,156 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
-                {filteredEntries.map((entry, index) => (
-                  <tr key={entry.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-3 py-2.5 text-center text-gray-400 font-mono text-[11px]">
-                      {index + 1}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-gray-600 whitespace-nowrap">
-                      {entry.studentDni ? (
-                        <span className="font-semibold text-slate-700">{entry.studentDni}</span>
-                      ) : (
+                {filteredEntries.map((entry, index) => {
+                  const isMarked = markedIds.has(entry.id);
+                  return (
+                    <tr
+                      key={entry.id}
+                      className={`transition-colors ${
+                        isMarked
+                          ? 'bg-amber-50/90 hover:bg-amber-100/90 border-l-4 border-l-amber-500 shadow-[inset_0_1px_0_0_rgba(245,158,11,0.2),inset_0_-1px_0_0_rgba(245,158,11,0.2)]'
+                          : 'hover:bg-slate-50/70'
+                      }`}
+                    >
+                      <td className={`px-3 py-2.5 text-center font-mono text-[11px] ${isMarked ? 'text-amber-900 font-bold' : 'text-gray-400'}`}>
+                        {index + 1}
+                      </td>
+                      <td className="px-2 py-2 text-center whitespace-nowrap">
                         <button
-                          onClick={() => {
-                            setEditingEntry(entry);
-                            setIsEditModalOpen(true);
-                          }}
-                          className="text-[11px] text-gray-400 hover:text-emerald-700 hover:underline flex items-center gap-1 group"
-                          title="Hacer clic para cargar el DNI"
+                          type="button"
+                          onClick={() => toggleMark(entry.id)}
+                          className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all inline-flex items-center justify-center gap-1 cursor-pointer select-none ${
+                            isMarked
+                              ? 'bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold border border-amber-500 shadow-xs'
+                              : 'bg-white hover:bg-amber-50 text-gray-600 hover:text-amber-800 border border-gray-300 hover:border-amber-300'
+                          }`}
+                          title={isMarked ? 'Fila marcada. Haz clic para desmarcar.' : 'Marcar alumno para comprobación visual'}
                         >
-                          <span>-</span>
-                          <span className="text-[10px] text-emerald-600 font-sans font-medium opacity-70 group-hover:opacity-100">
-                            + DNI
-                          </span>
+                          {isMarked ? (
+                            <>
+                              <span>✓</span>
+                              <span>Marcado</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-[10px] opacity-70">📍</span>
+                              <span>Marcar</span>
+                            </>
+                          )}
                         </button>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 font-medium text-gray-900">
-                      <div className="font-semibold text-slate-800">
-                        {entry.studentLastName}, {entry.studentFirstName}
-                      </div>
-                      {entry.notes && (
-                        <div className="text-[10px] text-gray-400 italic mt-0.5 truncate max-w-xs" title={entry.notes}>
-                          Nota: {entry.notes}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-gray-600 whitespace-nowrap">
+                        {entry.studentDni ? (
+                          <span className={`font-semibold ${isMarked ? 'text-amber-950' : 'text-slate-700'}`}>{entry.studentDni}</span>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setEditingEntry(entry);
+                              setIsEditModalOpen(true);
+                            }}
+                            className="text-[11px] text-gray-400 hover:text-emerald-700 hover:underline flex items-center gap-1 group"
+                            title="Hacer clic para cargar el DNI"
+                          >
+                            <span>-</span>
+                            <span className="text-[10px] text-emerald-600 font-sans font-medium opacity-70 group-hover:opacity-100">
+                              + DNI
+                            </span>
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 font-medium text-gray-900">
+                        <div className={`font-semibold ${isMarked ? 'text-slate-900' : 'text-slate-800'}`}>
+                          {entry.studentLastName}, {entry.studentFirstName}
                         </div>
-                      )}
-                    </td>
+                        {entry.notes && (
+                          <div className="text-[10px] text-gray-400 italic mt-0.5 truncate max-w-xs" title={entry.notes}>
+                            Nota: {entry.notes}
+                          </div>
+                        )}
+                      </td>
 
-                    {/* 1C Examen */}
-                    <td className="px-2 py-2.5 text-center font-mono border-l border-blue-100">
-                      {entry.c1Exam !== null && entry.c1Exam !== undefined ? (
-                        <span className={entry.c1Exam >= 4 ? 'text-gray-800' : 'text-red-600 font-bold'}>
-                          {entry.c1Exam.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                      {/* 1C Examen */}
+                      <td className="px-2 py-2.5 text-center font-mono border-l border-blue-100">
+                        {entry.c1Exam !== null && entry.c1Exam !== undefined ? (
+                          <span className={entry.c1Exam >= 4 ? (isMarked ? 'text-gray-900 font-medium' : 'text-gray-800') : 'text-red-600 font-bold'}>
+                            {entry.c1Exam.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
-                    {/* 1C Recup */}
-                    <td className="px-2 py-2.5 text-center font-mono">
-                      {entry.c1Recup !== null && entry.c1Recup !== undefined ? (
-                        <span className={entry.c1Recup >= 4 ? 'text-blue-700 font-semibold' : 'text-red-600 font-bold'}>
-                          {entry.c1Recup.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                      {/* 1C Recup */}
+                      <td className="px-2 py-2.5 text-center font-mono">
+                        {entry.c1Recup !== null && entry.c1Recup !== undefined ? (
+                          <span className={entry.c1Recup >= 4 ? 'text-blue-700 font-semibold' : 'text-red-600 font-bold'}>
+                            {entry.c1Recup.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
-                    {/* 1C Final */}
-                    <td className="px-2 py-2.5 text-center font-mono bg-blue-50/30 font-bold border-r border-blue-100">
-                      {entry.c1Final !== null && entry.c1Final !== undefined ? (
-                        <span className={entry.c1Final >= 6 ? 'text-emerald-700' : entry.c1Final >= 4 ? 'text-amber-700' : 'text-red-600'}>
-                          {entry.c1Final.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                      {/* 1C Final */}
+                      <td className={`px-2 py-2.5 text-center font-mono font-bold border-r border-blue-100 ${
+                        isMarked ? 'bg-amber-100/60' : 'bg-blue-50/30'
+                      }`}>
+                        {entry.c1Final !== null && entry.c1Final !== undefined ? (
+                          <span className={entry.c1Final >= 6 ? 'text-emerald-700' : entry.c1Final >= 4 ? 'text-amber-700' : 'text-red-600'}>
+                            {entry.c1Final.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
-                    {/* 2C Examen */}
-                    <td className="px-2 py-2.5 text-center font-mono">
-                      {entry.c2Exam !== null && entry.c2Exam !== undefined ? (
-                        <span className={entry.c2Exam >= 4 ? 'text-gray-800' : 'text-red-600 font-bold'}>
-                          {entry.c2Exam.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                      {/* 2C Examen */}
+                      <td className="px-2 py-2.5 text-center font-mono">
+                        {entry.c2Exam !== null && entry.c2Exam !== undefined ? (
+                          <span className={entry.c2Exam >= 4 ? (isMarked ? 'text-gray-900 font-medium' : 'text-gray-800') : 'text-red-600 font-bold'}>
+                            {entry.c2Exam.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
-                    {/* 2C Recup */}
-                    <td className="px-2 py-2.5 text-center font-mono">
-                      {entry.c2Recup !== null && entry.c2Recup !== undefined ? (
-                        <span className={entry.c2Recup >= 4 ? 'text-purple-700 font-semibold' : 'text-red-600 font-bold'}>
-                          {entry.c2Recup.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                      {/* 2C Recup */}
+                      <td className="px-2 py-2.5 text-center font-mono">
+                        {entry.c2Recup !== null && entry.c2Recup !== undefined ? (
+                          <span className={entry.c2Recup >= 4 ? 'text-purple-700 font-semibold' : 'text-red-600 font-bold'}>
+                            {entry.c2Recup.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
-                    {/* 2C Final */}
-                    <td className="px-2 py-2.5 text-center font-mono bg-purple-50/30 font-bold border-r border-purple-100">
-                      {entry.c2Final !== null && entry.c2Final !== undefined ? (
-                        <span className={entry.c2Final >= 6 ? 'text-emerald-700' : entry.c2Final >= 4 ? 'text-amber-700' : 'text-red-600'}>
-                          {entry.c2Final.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                      {/* 2C Final */}
+                      <td className={`px-2 py-2.5 text-center font-mono font-bold border-r border-purple-100 ${
+                        isMarked ? 'bg-amber-100/60' : 'bg-purple-50/30'
+                      }`}>
+                        {entry.c2Final !== null && entry.c2Final !== undefined ? (
+                          <span className={entry.c2Final >= 6 ? 'text-emerald-700' : entry.c2Final >= 4 ? 'text-amber-700' : 'text-red-600'}>
+                            {entry.c2Final.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
-                    {/* Promedio Final */}
-                    <td className="px-3 py-2.5 text-center font-mono font-bold bg-slate-50 border-r border-gray-200">
-                      {entry.finalGrade !== null && entry.finalGrade !== undefined ? (
-                        <span className={entry.finalGrade >= 6 ? 'text-emerald-700 text-sm' : entry.finalGrade >= 4 ? 'text-amber-700 text-sm' : 'text-red-600 text-sm'}>
-                          {entry.finalGrade.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-300">-</span>
-                      )}
-                    </td>
+                      {/* Promedio Final */}
+                      <td className={`px-3 py-2.5 text-center font-mono font-bold border-r border-gray-200 ${
+                        isMarked ? 'bg-amber-200/50' : 'bg-slate-50'
+                      }`}>
+                        {entry.finalGrade !== null && entry.finalGrade !== undefined ? (
+                          <span className={entry.finalGrade >= 6 ? 'text-emerald-700 text-sm' : entry.finalGrade >= 4 ? 'text-amber-700 text-sm' : 'text-red-600 text-sm'}>
+                            {entry.finalGrade.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
                     {/* Condición with quick selector */}
                     <td className="px-3 py-2.5 text-center">
@@ -777,7 +909,8 @@ export const GradebookView: React.FC<GradebookViewProps> = ({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
