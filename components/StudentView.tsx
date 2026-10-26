@@ -32,6 +32,8 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     config: ExamConfig;
   } | null>(null);
 
+  const [studentLastName, setStudentLastName] = useState('');
+  const [studentFirstName, setStudentFirstName] = useState('');
   const [studentName, setStudentName] = useState('');
   const [studentDni, setStudentDni] = useState('');
   const [examStep, setExamStep] = useState<'select' | 'name_input' | 'taking' | 'finished'>('select');
@@ -128,7 +130,9 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   };
 
   const confirmNameAndStart = () => {
-    if (!studentName.trim() || !studentDni.trim()) return;
+    if (!studentLastName.trim() || !studentFirstName.trim() || !studentDni.trim()) return;
+    const formatted = `${studentLastName.trim().toUpperCase()}, ${studentFirstName.trim()}`;
+    setStudentName(formatted);
     setExamStep('taking');
   };
 
@@ -450,23 +454,38 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
           </div>
 
           <div className="p-6 bg-white space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
-                Nombre y Apellido del Alumno
-              </label>
-              <input
-                id="student-name-input"
-                type="text"
-                className="w-full bg-white border border-slate-400 rounded-sm px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-                placeholder="Ej: Juan Pérez"
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
-                autoFocus
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                  Apellido(s) del Alumno *
+                </label>
+                <input
+                  id="student-lastname-input"
+                  type="text"
+                  className="w-full bg-white border border-slate-400 rounded-sm px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 uppercase"
+                  placeholder="Ej: GÓMEZ"
+                  value={studentLastName}
+                  onChange={(e) => setStudentLastName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
+                  Nombre(s) del Alumno *
+                </label>
+                <input
+                  id="student-firstname-input"
+                  type="text"
+                  className="w-full bg-white border border-slate-400 rounded-sm px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                  placeholder="Ej: Juan Carlos"
+                  value={studentFirstName}
+                  onChange={(e) => setStudentFirstName(e.target.value)}
+                />
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-1.5">
-                Número de DNI (sin puntos)
+                Número de DNI (sin puntos) *
               </label>
               <input
                 id="student-dni-input"
@@ -495,7 +514,7 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
             <Button
               variant="primary"
               onClick={confirmNameAndStart}
-              disabled={!studentName.trim() || !studentDni.trim()}
+              disabled={!studentLastName.trim() || !studentFirstName.trim() || !studentDni.trim()}
             >
               Comenzar Examen
             </Button>
@@ -510,7 +529,12 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     return (
       <ExamView
         questions={currentExam.questions}
-        studentData={{ name: studentName, dni: studentDni }}
+        studentData={{
+          name: studentName || `${studentLastName.trim().toUpperCase()}, ${studentFirstName.trim()}`,
+          dni: studentDni,
+          lastName: studentLastName.trim(),
+          firstName: studentFirstName.trim()
+        }}
         subjectId={currentExam.subject.id}
         subjectName={currentExam.subject.name}
         passingGrade={currentExam.config.passingGrade}

@@ -11,6 +11,8 @@ export interface StudentData {
   name: string;
   /** DNI / national ID – shown on the watermark */
   dni: string;
+  lastName?: string;
+  firstName?: string;
 }
 
 export interface ExamViewProps {
@@ -482,6 +484,8 @@ export const ExamView: React.FC<ExamViewProps> = ({
         id: crypto.randomUUID(),
         studentName: studentData.name,
         studentDni: studentData.dni,
+        studentLastName: studentData.lastName,
+        studentFirstName: studentData.firstName,
         subjectId,
         subjectName,
         score: correctCount,

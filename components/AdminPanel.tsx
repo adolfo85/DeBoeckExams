@@ -4,10 +4,11 @@ import { Subject, Question, ExamConfig, ExamResult, Unit, AuditEvent } from '../
 import { Button } from './Button';
 import { Modal } from './Modal';
 import { generateQuestionsAI } from '../services/geminiService';
+import { GradebookView } from './GradebookView';
 
 export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; teacherName: string; isSuperAdmin: boolean }> = ({ onLogout, teacherId, teacherName, isSuperAdmin }) => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [activeTab, setActiveTab] = useState<'subjects' | 'questions' | 'results' | 'users'>('subjects');
+  const [activeTab, setActiveTab] = useState<'subjects' | 'questions' | 'results' | 'gradebook' | 'users'>('subjects');
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null);
 
   // State to handle the "Finish & View Results" workflow
@@ -77,8 +78,8 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
       <div className={`flex-1 w-full mx-auto p-4 md:p-8 transition-all duration-300 ${activeTab === 'questions' ? 'max-w-[95%]' : 'max-w-7xl'}`}>
         <div className="flex flex-wrap gap-2 mb-8 border-b border-gray-100 pb-1">
           {(isSuperAdmin
-            ? ['subjects', 'questions', 'results', 'users']
-            : ['subjects', 'questions', 'results'] as const).map((tab: any) => (
+            ? ['subjects', 'questions', 'results', 'gradebook', 'users']
+            : ['subjects', 'questions', 'results', 'gradebook'] as const).map((tab: any) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -90,6 +91,7 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
                 {tab === 'subjects' && 'Espacios Curriculares'}
                 {tab === 'questions' && 'Banco de Preguntas/Configuración de Examen'}
                 {tab === 'results' && 'Resultados'}
+                {tab === 'gradebook' && 'Planilla de Exámenes'}
                 {tab === 'users' && (
                   <span className="flex items-center gap-2">
                     Gestión de Usuarios
@@ -118,6 +120,14 @@ export const AdminPanel: React.FC<{ onLogout: () => void; teacherId: string; tea
               teacherId={teacherId}
               isSuperAdmin={isSuperAdmin}
               isActive={activeTab === 'results'}
+            />
+          </div>
+          <div style={{ display: activeTab === 'gradebook' ? 'block' : 'none' }}>
+            <GradebookView
+              subjects={subjects}
+              teacherId={teacherId}
+              isSuperAdmin={isSuperAdmin}
+              isActive={activeTab === 'gradebook'}
             />
           </div>
           {isSuperAdmin && (
@@ -1334,6 +1344,223 @@ const ExamControl: React.FC<{ subjects: Subject[], onFinishAndShowResults: (id: 
   );
 };
 
+// ── TransferToGradebookModal subcomponent ──────────────────────────────────
+interface TransferModalProps {
+  subjectId: string;
+  subjectName: string;
+  results: ExamResult[];
+  sessionLabel: string;
+  subjects: Subject[];
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+const TransferToGradebookModal: React.FC<TransferModalProps> = ({
+  subjectId: initialSubjectId,
+  results,
+  sessionLabel,
+  subjects,
+  onClose,
+  onSuccess
+}) => {
+  const currentYear = new Date().getFullYear();
+  const [selectedSubjectId, setSelectedSubjectId] = useState(initialSubjectId || subjects[0]?.id || '');
+  const [academicYear, setAcademicYear] = useState(currentYear);
+  const [targetColumn, setTargetColumn] = useState<'c1_exam' | 'c1_recup' | 'c2_exam' | 'c2_recup'>('c1_exam');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleConfirm = async () => {
+    try {
+      setIsSubmitting(true);
+      const res = await storageService.importResultsToGradebook(
+        selectedSubjectId,
+        targetColumn,
+        results,
+        academicYear
+      );
+      alert(`¡Éxito! Se trasladaron ${results.length} calificaciones (${res.inserted} alumnos nuevos registrados, ${res.updated} actualizados) a la Planilla de Exámenes.`);
+      onSuccess();
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert('Hubo un error al trasladar las calificaciones. Por favor intente nuevamente.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden border border-gray-200 animate-fadeIn">
+        <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-4 flex justify-between items-center">
+          <div>
+            <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+              Gestión de Calificaciones
+            </span>
+            <h3 className="text-base font-bold text-gray-800 mt-0.5">
+              Trasladar a Planilla de Exámenes
+            </h3>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">
+            &times;
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 space-y-1">
+            <div className="font-semibold text-slate-900">{sessionLabel}</div>
+            <div className="text-slate-500">
+              Total a trasladar: <strong className="text-emerald-700">{results.length} alumno(s)</strong> con sus calificaciones.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1">
+                Espacio Curricular Destino
+              </label>
+              <select
+                value={selectedSubjectId}
+                onChange={e => setSelectedSubjectId(e.target.value)}
+                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs font-medium focus:ring-emerald-500 outline-none"
+              >
+                {subjects.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1">
+                Ciclo Lectivo
+              </label>
+              <select
+                value={academicYear}
+                onChange={e => setAcademicYear(Number(e.target.value))}
+                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-xs font-medium focus:ring-emerald-500 outline-none"
+              >
+                <option value={currentYear - 1}>{currentYear - 1}</option>
+                <option value={currentYear}>{currentYear}</option>
+                <option value={currentYear + 1}>{currentYear + 1}</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">
+              ¿A qué columna corresponde esta evaluación? *
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              <label
+                className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                  targetColumn === 'c1_exam'
+                    ? 'border-emerald-500 bg-emerald-50/60 font-semibold text-emerald-900'
+                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="targetColumn"
+                  value="c1_exam"
+                  checked={targetColumn === 'c1_exam'}
+                  onChange={() => setTargetColumn('c1_exam')}
+                  className="text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>1° Cuatrimestre — Parcial</span>
+              </label>
+
+              <label
+                className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                  targetColumn === 'c1_recup'
+                    ? 'border-amber-500 bg-amber-50/60 font-semibold text-amber-900'
+                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="targetColumn"
+                  value="c1_recup"
+                  checked={targetColumn === 'c1_recup'}
+                  onChange={() => setTargetColumn('c1_recup')}
+                  className="text-amber-600 focus:ring-amber-500"
+                />
+                <span>1° Cuatrimestre — Recuperatorio</span>
+              </label>
+
+              <label
+                className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                  targetColumn === 'c2_exam'
+                    ? 'border-purple-500 bg-purple-50/60 font-semibold text-purple-900'
+                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="targetColumn"
+                  value="c2_exam"
+                  checked={targetColumn === 'c2_exam'}
+                  onChange={() => setTargetColumn('c2_exam')}
+                  className="text-purple-600 focus:ring-purple-500"
+                />
+                <span>2° Cuatrimestre — Parcial</span>
+              </label>
+
+              <label
+                className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                  targetColumn === 'c2_recup'
+                    ? 'border-amber-500 bg-amber-50/60 font-semibold text-amber-900'
+                    : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="targetColumn"
+                  value="c2_recup"
+                  checked={targetColumn === 'c2_recup'}
+                  onChange={() => setTargetColumn('c2_recup')}
+                  className="text-amber-600 focus:ring-amber-500"
+                />
+                <span>2° Cuatrimestre — Recuperatorio</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-[11px] text-slate-600 space-y-1">
+            <div className="font-semibold text-slate-800">💡 Vinculación Automática:</div>
+            <div>
+              Si el alumno ya existe en la planilla (coincidencia por <strong>DNI</strong> o Apellido y Nombre), se actualizará esta nota y se recalculará automáticamente su Nota Final y su condición (<strong>Promocionado, Regular o Libre</strong>). Si no existe, se creará una nueva fila en la planilla.
+            </div>
+          </div>
+
+          <div className="max-h-36 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100 text-xs">
+            {results.slice(0, 15).map(r => (
+              <div key={r.id} className="px-3 py-1.5 flex justify-between items-center text-gray-700">
+                <span>{r.studentName} {r.studentDni ? `(DNI: ${r.studentDni})` : ''}</span>
+                <span className="font-mono font-bold text-emerald-700">Nota: {r.grade.toFixed(1)}</span>
+              </div>
+            ))}
+            {results.length > 15 && (
+              <div className="px-3 py-1 text-center text-gray-400 text-[11px]">
+                ... y {results.length - 15} alumno(s) más
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Cancelar
+          </Button>
+          <Button variant="primary" onClick={handleConfirm} disabled={isSubmitting} className="bg-emerald-600 hover:bg-emerald-700">
+            {isSubmitting ? 'Trasladando...' : 'Confirmar Traslado'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: string, teacherId: string, isSuperAdmin: boolean, isActive: boolean }> = ({ subjects, initialFilterSubjectId, teacherId, isSuperAdmin, isActive }) => {
   const [results, setResults] = useState<ExamResult[]>([]);
   const [filterSubjectId, setFilterSubjectId] = useState<string>('all');
@@ -1344,6 +1571,7 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
   const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
   // key: `${subjectId}-${unitId||''}` → Question[]
   const [questionCache, setQuestionCache] = useState<Record<string, Question[]>>({});
+  const [transferData, setTransferData] = useState<{ subjectId: string; subjectName: string; results: ExamResult[]; sessionLabel: string } | null>(null);
 
   useEffect(() => {
     setFilterSubjectId(initialFilterSubjectId);
@@ -1648,6 +1876,24 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
                         {sPassed}/{sTotal} aprobados
                       </span>
                       <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          setTransferData({
+                            subjectId: session.results[0].subjectId,
+                            subjectName: session.results[0].subjectName,
+                            results: sResults,
+                            sessionLabel: label
+                          });
+                        }}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors"
+                        title="Trasladar notas de esta sesión a la Planilla de Exámenes"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                        </svg>
+                        <span>Pasar a Planilla</span>
+                      </button>
+                      <button
                         onClick={e => { e.stopPropagation(); handlePrintPDF(sResults, label); }}
                         className="text-gray-300 hover:text-blue-500 transition-colors"
                         title="Imprimir/PDF"
@@ -1711,17 +1957,35 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
                                     {r.grade.toFixed(1)} — {r.passed ? 'APROBADO' : 'REPROBADO'}
                                   </span>
                                 </td>
-                                {/* Per-result delete */}
+                                {/* Per-result actions */}
                                 <td className="px-3 py-3">
-                                  <button
-                                    onClick={() => { if (confirm(`¿Eliminar resultado de ${r.studentName}?`)) handleDeleteResultById(r.id); }}
-                                    title="Eliminar este resultado"
-                                    className="text-gray-300 hover:text-red-500 transition-colors"
-                                  >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                  </button>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      onClick={() => {
+                                        setTransferData({
+                                          subjectId: r.subjectId,
+                                          subjectName: r.subjectName,
+                                          results: [r],
+                                          sessionLabel: `Examen individual de ${r.studentName}`
+                                        });
+                                      }}
+                                      title="Trasladar este resultado a la Planilla de Exámenes"
+                                      className="text-gray-300 hover:text-emerald-600 transition-colors"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                                      </svg>
+                                    </button>
+                                    <button
+                                      onClick={() => { if (confirm(`¿Eliminar resultado de ${r.studentName}?`)) handleDeleteResultById(r.id); }}
+                                      title="Eliminar este resultado"
+                                      className="text-gray-300 hover:text-red-500 transition-colors"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                               {/* Question detail row */}
@@ -1768,6 +2032,18 @@ const ResultsView: React.FC<{ subjects: Subject[], initialFilterSubjectId: strin
         confirmText="Borrar Historial"
         variant="danger"
       />
+
+      {transferData && (
+        <TransferToGradebookModal
+          subjectId={transferData.subjectId}
+          subjectName={transferData.subjectName}
+          results={transferData.results}
+          sessionLabel={transferData.sessionLabel}
+          subjects={subjects}
+          onClose={() => setTransferData(null)}
+          onSuccess={() => {}}
+        />
+      )}
     </div>
   );
 };

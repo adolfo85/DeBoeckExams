@@ -69,10 +69,35 @@ export interface ExamResult {
   /** JSON-serialized Record<questionId, number | number[]> — stored when exam is submitted via ExamView */
   answersJson?: string;
   studentDni?: string;
+  studentLastName?: string;
+  studentFirstName?: string;
   deviceId?: string;
   deviceFingerprint?: string;
   deviceInfo?: string;
   ipAddress?: string;
+}
+
+export type StudentAcademicStatus = 'promocionado' | 'regular' | 'libre';
+
+export interface GradebookEntry {
+  id: string;
+  subjectId: string;
+  studentDni?: string;
+  studentLastName: string;
+  studentFirstName: string;
+  c1Exam?: number | null;
+  c1Recup?: number | null;
+  c1Final?: number | null;
+  c2Exam?: number | null;
+  c2Recup?: number | null;
+  c2Final?: number | null;
+  finalGrade?: number | null;
+  status: StudentAcademicStatus;
+  statusOverride?: boolean;
+  academicYear: number;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface AdminState {
@@ -84,6 +109,8 @@ export interface AuditEvent {
   id: string;
   studentName: string;
   studentDni: string;
+  studentLastName?: string;
+  studentFirstName?: string;
   subjectName: string;
   eventType: 'focus_loss' | 'visibility_hidden' | 'exam_start' | 'exam_finish';
   timestamp: number; // Unix ms

@@ -1,4 +1,5 @@
-import { Subject, Question, ExamConfig, ExamResult, Teacher, Unit, AuditEvent } from '../types';
+import { Subject, Question, ExamConfig, ExamResult, Teacher, Unit, AuditEvent, GradebookEntry, StudentAcademicStatus } from '../types';
+import { calculateAcademicStatus, parseStudentName } from './gradebookUtils';
 import { sql } from './db';
 
 const STORAGE_KEYS = {
@@ -67,10 +68,42 @@ export const storageService = {
 
       // Device tracking & DNI columns for results
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS student_dni TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS student_last_name TEXT`;
+      await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS student_first_name TEXT`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS device_id TEXT`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS device_fingerprint TEXT`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS device_info TEXT`;
       await sql`ALTER TABLE results ADD COLUMN IF NOT EXISTS ip_address TEXT`;
+
+      // Planilla de Exámenes (Gradebook)
+      await sql`
+        CREATE TABLE IF NOT EXISTS exam_gradebook (
+          id UUID PRIMARY KEY,
+          subject_id UUID REFERENCES subjects(id) ON DELETE CASCADE,
+          student_dni TEXT,
+          student_last_name TEXT NOT NULL,
+          student_first_name TEXT NOT NULL,
+          c1_exam NUMERIC,
+          c1_recup NUMERIC,
+          c1_final NUMERIC,
+          c2_exam NUMERIC,
+          c2_recup NUMERIC,
+          c2_final NUMERIC,
+          final_grade NUMERIC,
+          status TEXT NOT NULL DEFAULT 'regular',
+          status_override BOOLEAN DEFAULT false,
+          academic_year INTEGER NOT NULL DEFAULT 2026,
+          notes TEXT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `;
+      try {
+        await sql`CREATE INDEX IF NOT EXISTS idx_gradebook_subject ON exam_gradebook(subject_id)`;
+        await sql`CREATE INDEX IF NOT EXISTS idx_gradebook_dni ON exam_gradebook(student_dni)`;
+      } catch (e) {
+        // ignore index creation if not supported
+      }
 
       // Backfill IDs for exam_configs if they are null
       try {
@@ -678,4 +711,217 @@ export const storageService = {
       return [];
     }
   },
+
+  // ── Planilla de Exámenes (Gradebook) ────────────────────────────────────────
+  getGradebookEntries: async (subjectId: string, academicYear?: number): Promise<GradebookEntry[]> => {
+    try {
+      const year = academicYear || new Date().getFullYear();
+      const rows = await sql`
+        SELECT * FROM exam_gradebook
+        WHERE subject_id = ${subjectId} AND academic_year = ${year}
+        ORDER BY student_last_name ASC, student_first_name ASC
+      `;
+      return rows.map((r: any) => ({
+        id: r.id,
+        subjectId: r.subject_id,
+        studentDni: r.student_dni || undefined,
+        studentLastName: r.student_last_name,
+        studentFirstName: r.student_first_name,
+        c1Exam: r.c1_exam !== null ? Number(r.c1_exam) : null,
+        c1Recup: r.c1_recup !== null ? Number(r.c1_recup) : null,
+        c1Final: r.c1_final !== null ? Number(r.c1_final) : null,
+        c2Exam: r.c2_exam !== null ? Number(r.c2_exam) : null,
+        c2Recup: r.c2_recup !== null ? Number(r.c2_recup) : null,
+        c2Final: r.c2_final !== null ? Number(r.c2_final) : null,
+        finalGrade: r.final_grade !== null ? Number(r.final_grade) : null,
+        status: (r.status as StudentAcademicStatus) || 'regular',
+        statusOverride: Boolean(r.status_override),
+        academicYear: Number(r.academic_year || 2026),
+        notes: r.notes || undefined,
+        createdAt: Number(r.created_at || Date.now()),
+        updatedAt: Number(r.updated_at || Date.now())
+      }));
+    } catch (e) {
+      console.error("Error fetching gradebook entries:", e);
+      return [];
+    }
+  },
+
+  saveGradebookEntry: async (entry: Omit<GradebookEntry, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<GradebookEntry> => {
+    const id = entry.id || crypto.randomUUID();
+    const now = Date.now();
+    const calc = calculateAcademicStatus({
+      c1Exam: entry.c1Exam,
+      c1Recup: entry.c1Recup,
+      c2Exam: entry.c2Exam,
+      c2Recup: entry.c2Recup,
+      statusOverride: entry.status,
+      isOverride: entry.statusOverride
+    });
+
+    await sql`
+      INSERT INTO exam_gradebook (
+        id, subject_id, student_dni, student_last_name, student_first_name,
+        c1_exam, c1_recup, c1_final, c2_exam, c2_recup, c2_final,
+        final_grade, status, status_override, academic_year, notes,
+        created_at, updated_at
+      ) VALUES (
+        ${id}, ${entry.subjectId}, ${entry.studentDni || null}, ${entry.studentLastName.trim().toUpperCase()}, ${entry.studentFirstName.trim()},
+        ${entry.c1Exam !== undefined ? entry.c1Exam : null}, ${entry.c1Recup !== undefined ? entry.c1Recup : null}, ${calc.c1Final},
+        ${entry.c2Exam !== undefined ? entry.c2Exam : null}, ${entry.c2Recup !== undefined ? entry.c2Recup : null}, ${calc.c2Final},
+        ${calc.finalGrade}, ${calc.status}, ${entry.statusOverride || false}, ${entry.academicYear || 2026}, ${entry.notes || null},
+        ${now}, ${now}
+      )
+    `;
+
+    return {
+      id,
+      subjectId: entry.subjectId,
+      studentDni: entry.studentDni,
+      studentLastName: entry.studentLastName.trim().toUpperCase(),
+      studentFirstName: entry.studentFirstName.trim(),
+      c1Exam: entry.c1Exam ?? null,
+      c1Recup: entry.c1Recup ?? null,
+      c1Final: calc.c1Final,
+      c2Exam: entry.c2Exam ?? null,
+      c2Recup: entry.c2Recup ?? null,
+      c2Final: calc.c2Final,
+      finalGrade: calc.finalGrade,
+      status: calc.status,
+      statusOverride: entry.statusOverride,
+      academicYear: entry.academicYear || 2026,
+      notes: entry.notes,
+      createdAt: now,
+      updatedAt: now
+    };
+  },
+
+  updateGradebookEntry: async (id: string, updates: Partial<GradebookEntry>): Promise<void> => {
+    try {
+      const now = Date.now();
+      const existingRows = await sql`SELECT * FROM exam_gradebook WHERE id = ${id}`;
+      if (existingRows.length === 0) return;
+      const existing = existingRows[0];
+
+      const merged = {
+        studentDni: updates.studentDni !== undefined ? updates.studentDni : existing.student_dni,
+        studentLastName: updates.studentLastName !== undefined ? updates.studentLastName : existing.student_last_name,
+        studentFirstName: updates.studentFirstName !== undefined ? updates.studentFirstName : existing.student_first_name,
+        c1Exam: updates.c1Exam !== undefined ? updates.c1Exam : (existing.c1_exam !== null ? Number(existing.c1_exam) : null),
+        c1Recup: updates.c1Recup !== undefined ? updates.c1Recup : (existing.c1_recup !== null ? Number(existing.c1_recup) : null),
+        c2Exam: updates.c2Exam !== undefined ? updates.c2Exam : (existing.c2_exam !== null ? Number(existing.c2_exam) : null),
+        c2Recup: updates.c2Recup !== undefined ? updates.c2Recup : (existing.c2_recup !== null ? Number(existing.c2_recup) : null),
+        statusOverride: updates.statusOverride !== undefined ? updates.statusOverride : Boolean(existing.status_override),
+        status: updates.status !== undefined ? updates.status : (existing.status as StudentAcademicStatus),
+        notes: updates.notes !== undefined ? updates.notes : existing.notes
+      };
+
+      const calc = calculateAcademicStatus({
+        c1Exam: merged.c1Exam,
+        c1Recup: merged.c1Recup,
+        c2Exam: merged.c2Exam,
+        c2Recup: merged.c2Recup,
+        statusOverride: merged.status,
+        isOverride: merged.statusOverride
+      });
+
+      await sql`
+        UPDATE exam_gradebook SET
+          student_dni = ${merged.studentDni || null},
+          student_last_name = ${merged.studentLastName.trim().toUpperCase()},
+          student_first_name = ${merged.studentFirstName.trim()},
+          c1_exam = ${merged.c1Exam},
+          c1_recup = ${merged.c1Recup},
+          c1_final = ${calc.c1Final},
+          c2_exam = ${merged.c2Exam},
+          c2_recup = ${merged.c2Recup},
+          c2_final = ${calc.c2Final},
+          final_grade = ${calc.finalGrade},
+          status = ${calc.status},
+          status_override = ${merged.statusOverride},
+          notes = ${merged.notes || null},
+          updated_at = ${now}
+        WHERE id = ${id}
+      `;
+    } catch (e) {
+      console.error("Error updating gradebook entry:", e);
+    }
+  },
+
+  deleteGradebookEntry: async (id: string): Promise<void> => {
+    try {
+      await sql`DELETE FROM exam_gradebook WHERE id = ${id}`;
+    } catch (e) {
+      console.error("Error deleting gradebook entry:", e);
+    }
+  },
+
+  importResultsToGradebook: async (
+    subjectId: string,
+    targetColumn: 'c1_exam' | 'c1_recup' | 'c2_exam' | 'c2_recup',
+    resultsToImport: ExamResult[],
+    academicYear?: number
+  ): Promise<{ inserted: number; updated: number }> => {
+    const year = academicYear || new Date().getFullYear();
+    const existingEntries = await storageService.getGradebookEntries(subjectId, year);
+    let inserted = 0;
+    let updated = 0;
+
+    for (const res of resultsToImport) {
+      const dni = (res.studentDni || '').trim();
+      const parsed = parseStudentName(res.studentName);
+      const lastName = (res.studentLastName || parsed.lastName).trim().toUpperCase();
+      const firstName = (res.studentFirstName || parsed.firstName).trim();
+
+      // Match strategy:
+      // 1. Primary: match by DNI
+      // 2. Secondary: match by normalized Apellido y Nombre
+      let match: GradebookEntry | undefined = undefined;
+      if (dni) {
+        match = existingEntries.find(e => e.studentDni && e.studentDni.trim() === dni);
+      }
+      if (!match) {
+        const normKey = `${lastName} ${firstName}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        match = existingEntries.find(e => {
+          const eKey = `${e.studentLastName} ${e.studentFirstName}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          return eKey === normKey;
+        });
+      }
+
+      const gradeValue = res.grade;
+
+      if (match) {
+        const updates: Partial<GradebookEntry> = {
+          studentDni: match.studentDni || dni || undefined
+        };
+        if (targetColumn === 'c1_exam') updates.c1Exam = gradeValue;
+        if (targetColumn === 'c1_recup') updates.c1Recup = gradeValue;
+        if (targetColumn === 'c2_exam') updates.c2Exam = gradeValue;
+        if (targetColumn === 'c2_recup') updates.c2Recup = gradeValue;
+
+        await storageService.updateGradebookEntry(match.id, updates);
+        Object.assign(match, updates);
+        updated++;
+      } else {
+        const newEntryData: any = {
+          subjectId,
+          studentDni: dni || undefined,
+          studentLastName: lastName,
+          studentFirstName: firstName,
+          academicYear: year,
+          c1Exam: targetColumn === 'c1_exam' ? gradeValue : null,
+          c1Recup: targetColumn === 'c1_recup' ? gradeValue : null,
+          c2Exam: targetColumn === 'c2_exam' ? gradeValue : null,
+          c2Recup: targetColumn === 'c2_recup' ? gradeValue : null,
+          status: 'regular' as StudentAcademicStatus,
+          statusOverride: false
+        };
+        const created = await storageService.saveGradebookEntry(newEntryData);
+        existingEntries.push(created);
+        inserted++;
+      }
+    }
+
+    return { inserted, updated };
+  }
 };
