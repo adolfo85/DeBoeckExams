@@ -10,13 +10,8 @@ function App() {
   const [view, setView] = useState<'landing' | 'student' | 'adminLogin' | 'adminPanel'>('landing');
   const [currentTeacher, setCurrentTeacher] = useState<{ id: string; name: string; isSuperAdmin?: boolean } | null>(null);
 
-  // Initial routing and schema migration
+  // Initial routing
   useEffect(() => {
-    // Ensure database schema is migrated (adds device tracking columns safely)
-    storageService.migrateSchema().catch(err => {
-      console.warn('Auto schema migration:', err);
-    });
-
     // Check if there's a teacher ID in the URL
     const urlParams = new URLSearchParams(window.location.search);
     const teacherId = urlParams.get('t');

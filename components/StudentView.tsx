@@ -37,6 +37,10 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
   const [studentName, setStudentName] = useState('');
   const [studentDni, setStudentDni] = useState('');
   const [examStep, setExamStep] = useState<'select' | 'name_input' | 'taking' | 'finished'>('select');
+  const examStepRef = useRef(examStep);
+  useEffect(() => {
+    examStepRef.current = examStep;
+  }, [examStep]);
   const [answers, setAnswers] = useState<Record<string, number | number[]>>({});
   const [finalResult, setFinalResult] = useState<ExamResult | null>(null);
   const [studentCountdown, setStudentCountdown] = useState<number | null>(null);
@@ -77,18 +81,26 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     const loadTeacherExams = async (teacherId: string) => {
       // We still need subjects if the UI references them outside of the exam list, 
       // but activeExams can be loaded in 1 query now.
-      const allSubjects = await storageService.getSubjects(teacherId);
-      setSubjects(allSubjects);
+      try {
+        const allSubjects = await storageService.getSubjects(teacherId);
+        if (allSubjects && allSubjects.length > 0) {
+          setSubjects(allSubjects);
+        }
 
-      const active = await storageService.getActiveExams(teacherId);
-      setActiveExams(active);
-      setIsLoading(false);
+        const active = await storageService.getActiveExams(teacherId);
+        setActiveExams(active);
+      } catch (err) {
+        console.error('Error fetching teacher exams:', err);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     loadData();
 
-    // Poll every 5 seconds to reflect exam activation/deactivation in real time
+    // Poll every 5 seconds to reflect exam activation/deactivation in real time (only on exam selection screen)
     const interval = setInterval(async () => {
+      if (examStepRef.current !== 'select') return;
       const urlParams = new URLSearchParams(window.location.search);
       const teacherId = urlParams.get('t') || activeTeacherIdRef.current;
       if (teacherId) {
@@ -103,14 +115,14 @@ export const StudentView: React.FC<{ onAdminLoginClick: () => void }> = ({ onAdm
     const subject = subjects.find(s => s.id === exam.subjectId);
     if (!subject) return;
 
-    const allQuestions = await storageService.getQuestions(exam.subjectId, exam.unitId);
     let activeQuestions: Question[] = [];
 
     if (exam.type === 'integrative') {
       const allSubjectQuestions = await storageService.getQuestions(exam.subjectId);
       activeQuestions = allSubjectQuestions.filter(q => q.isActiveIntegrative);
     } else {
-      activeQuestions = allQuestions.filter(q => q.isActive);
+      const unitQuestions = await storageService.getQuestions(exam.subjectId, exam.unitId);
+      activeQuestions = unitQuestions.filter(q => q.isActive);
     }
 
     if (activeQuestions.length === 0) {

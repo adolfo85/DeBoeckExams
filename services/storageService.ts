@@ -6,9 +6,12 @@ const STORAGE_KEYS = {
   COMPLETED_LOCAL: 'deboeck_completed_exams_device'
 };
 
+let isSchemaMigrated = false;
+
 export const storageService = {
   // Migration
   migrateSchema: async () => {
+    if (isSchemaMigrated) return;
     try {
       // Create units table
       await sql`
@@ -130,6 +133,8 @@ export const storageService = {
           AND a.subject_id = b.subject_id 
           AND a.type = 'integrative'
           AND a.unit_id IS NULL
+          AND b.type = 'integrative'
+          AND b.unit_id IS NULL
         `;
 
         // 3. Add Unique Constraint for Units
@@ -155,6 +160,7 @@ export const storageService = {
         console.error("Error cleaning up duplicates or adding constraints:", e);
       }
 
+      isSchemaMigrated = true;
       console.log("Schema migration completed");
     } catch (e) {
       console.error("Schema migration failed:", e);
@@ -406,7 +412,8 @@ export const storageService = {
     }
   },
 
-  getActiveExams: async (teacherId: string) => {
+  getActiveExams: async (teacherId?: string) => {
+    if (!teacherId) return [];
     try {
       const result = await sql`
         SELECT 

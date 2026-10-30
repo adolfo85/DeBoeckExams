@@ -347,6 +347,7 @@ const QuestionManager: React.FC<{ subjects: Subject[], selectedSubjectId: string
   const [countdown, setCountdown] = useState<number | null>(null); // seconds remaining
 
   useEffect(() => {
+    setCountdown(null);
     if (selectedSubjectId) {
       loadUnits(selectedSubjectId);
       loadExamConfig(selectedSubjectId);
